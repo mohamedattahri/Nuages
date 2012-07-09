@@ -1,41 +1,39 @@
 import re
+import itertools
+import collections
 from datetime import datetime
-from django.http import (HttpRequest as _HttpRequest,
-                         HttpResponse as _HttpResponse)
+from django.conf import settings
+from django.http import HttpResponse as _HttpResponse
+from django.core.handlers.wsgi import STATUS_CODE_TEXT
 
 
-__all__ = ['HTTP_METHODS', 'HttpResponse', 'HttpResponse', 'Etag', 'Range',
-           'ContentRange', 'InvalidRequestError', 'HttpException']
+__all__ = ('HttpResponse', 'HttpResponse', 'Etag', 'Range', 'ContentRange', 
+           'InvalidRequestError', 'HttpException')
 
 
-HTTP_METHODS = ['HEAD', 'GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS']
-
-    
 class HttpException(Exception):
-    def __init__(self, request, status_code=503,
-                 description="Service unavailable"):
-        map(lambda k, v: setattr(self, k, v), self.__locals.items())
+    def __init__(self, node, status=503,
+                 description=None):
+        self.__locals = locals()
+        map(lambda key: setattr(self, key, self.__locals[key]), self.__locals)
+        super(Exception, self).__init__(description or STATUS_CODE_TEXT[status])
 
 
 class InvalidRequestError(HttpException):
-    '''
-    Represents an exception raised during the initial phase of validation
-    of the HTTP request.s
-    '''
-    def __init__(self, request):
-        super(InvalidRequestError, self).__init__(request, 400)
+    def __init__(self, node, status=400):
+        super(InvalidRequestError, self).__init__(node, status)
         
         
 class NotModifiedError(HttpException):
-    def __init__(self, request):
-        super(NotModifiedError, self).__init__(request, 304)
+    def __init__(self, node):
+        super(NotModifiedError, self).__init__(node, 304)
         
         
 def datetime_to_timestamp(datetm):
     '''
     Returns the timestamp representation of a datetime instance.
     '''
-    return long(datetm.strftime("%s") + 
+    return float(datetm.strftime("%s") + 
                 ".%03d" % (datetm.time().microsecond / 1000))
     
     
@@ -49,33 +47,84 @@ def parse_datetime(datestr):
     
     if 'GMT' in datestr:
         return datetime.strptime(datestr, '%a, %d %b %Y %T GMT')
-
-
-class HttpRequest(_HttpRequest):
-    ''''''
-    def __getattr__(self, header):
+    
+    
+class RequestMeta(collections.MutableMapping):
+    '''Wrapper around the META dict of a Django HttpRequest instance'''
+    def __init__(self, request_meta):
         '''
-        Overrides the default behavior to parse the header values into
-        something much easier to manipulate.
+        @param request_meta:dict
         '''
+        self.store = request_meta
+        
+    def __getitem__(self, key):
         try:
-            header, value = (header.upper(), self._headers[header]) 
+            key = self.__keytransform__(key)
+            header, value = (key, self.store[key])
+            
             if header in ['HTTP_IF_MATCH', 'HTTP_IF-NONE_MATCH']:
                 return (Etag.parse(value) if ';' not in value
                         else [map(Etag.parse, value.split(';'))])
-            elif header is 'HTTP_IF_RANGE':
+            
+            if header == 'HTTP_IF_RANGE':
                 return Etag.parse(value)
-            elif header in ['HTTP_IF_MODIFIED_SINCE',
+            
+            if header in ['HTTP_IF_MODIFIED_SINCE',
                             'HTTP_IF_UNMODIFIED_SINCE']:
                 return parse_datetime(value)
-        except(ValueError), e:
+            
+            if header == 'HTTP_ACCEPT':
+                items = filter(lambda x: not x.startswith('q='),
+                               itertools.chain(*[i.split(',') 
+                                                 for i in value.split(';')]))
+                return [settings.DEFAULT_CONTENT_TYPE if i == '*/*' else i
+                        for i in items]
+            
+            return value
+        except(KeyError), e:
             raise InvalidRequestError(400, repr(e))
+    
+    def __setitem__(self, key, value):
+        self.store[self.__keytransform__(key)] = value
+
+    def __delitem__(self, key):
+        del self.store[self.__keytransform__(key)]
+
+    def __iter__(self):
+        return iter(self.store)
+
+    def __len__(self):
+        return len(self.store)
+
+    def __keytransform__(self, key):
+        return key.upper().replace('-', '_')
+    
+    
+class HttpRequest(object):
+    '''
+    Wrapper around the Django HttpRequest with improved methods
+    and attributes.
+    '''
+    def __init__(self, base_request):
+        '''
+        @param base_request:django.http.HttpRequest
+        '''
+        self._base_request = base_request
+        self.META = RequestMeta(base_request.META)
+        
+    def __getattr__(self, name):
+        '''
+        Allows all the attributes of the base HttpRequest to be mirrored in
+        the wrapper, unless they've been overridden. 
+        '''
+        return getattr(self._base_request, name)       
     
     
 class HttpResponse(_HttpResponse):
     ''''''
-    def __init__(self, request):
-        self.__request = request
+    def __init__(self, request=None, *args, **kwargs):
+        self.request = request
+        super(HttpResponse, self).__init__(*args, **kwargs)
 
 
 class Etag(object):
@@ -87,9 +136,15 @@ class Etag(object):
     def __init__(self, last_modified, id_):
         self.__locals = locals()
         setattr(self, 'timestamp', datetime_to_timestamp(last_modified))
-        map(lambda k, v: setattr(self, k, v), self.__locals.items())
+        map(lambda key: setattr(self, key, self.__locals[key]), self.__locals)
+        
+    def __cmp__(self, instance):
+        return repr(self) == repr(instance)
         
     def __repr__(self):
+        if not self.timestamp:
+            return '*'
+        
         return '%(timestamp)-%(id_)' % self.__locals
     
     @classmethod
@@ -99,6 +154,9 @@ class Etag(object):
             return cls(datetime.fromtimestamp(timestamp), id_)
         except:
             ValueError('Invalid \'Etag\' header value')
+            
+            
+ETAG_WILDCARD = Etag(datetime.fromtimestamp(0), '0')
 
 
 class Range(object):
@@ -111,10 +169,11 @@ class Range(object):
     (http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.35.2)
     '''
     def __init__(self, unit, offset, limit):
-        map(lambda k, v: setattr(self, k, v), locals().items())
+        map(lambda key: setattr(self, key, locals()[key]), locals())
     
     @classmethod
     def parse(cls, raw_header):
+        #FIXME: Not all the formats defined by the HTTP RFC are supported
         match = re.match(r'^(?P<unit>\w+)=(?P<offset>\d+)-(?P<limit>\d+)$',
                          raw_header)
         if not match:
@@ -134,7 +193,7 @@ class ContentRange(object):
     '''
     def __init__(self, unit, first, last, total):
         self.__locals = locals()
-        map(lambda k, v: setattr(self, k, v), self.__locals.items())
+        map(lambda key: setattr(self, key, self.__locals[key]), self.__locals)
         
     def __repr__(self):
         return '%(unit) %(first)-%(last)/%(total)' % self.__locals

@@ -1,40 +1,97 @@
 # -*- coding: utf-8 -*-
-from nuages.http import (HttpResponse, InvalidRequestError, NotModifiedError)
+import inspect
+from django.conf import settings
+from django.core.urlresolvers import reverse, resolve
+from nuages.http import (HttpRequest, HttpResponse, InvalidRequestError,
+                         NotModifiedError, ETAG_WILDCARD)
 
 
-class HttpNode(object):
+__all__ = ('Node', 'CollectionNode', 'ResourceNode')
+
+
+#settings.configure(DEFAULT_CONTENT_TYPE='application/json')
+
+
+class Node(object):
     ''''''
+    uri = None
     name = None
     parent = None
-    uri = None
     range_unit = ('resource', 'resources')
     max_limit = 200
-    allows = ['HEAD', 'GET']
     outputs = ['application/json', 'application/xml']
+    allow = ['GET']
+    __implicit_methods = ['OPTIONS', 'HEAD']
+    __parent_instance = None
+    
+    def __new__(cls, *args, **kwargs):
+        cls.outputs = [settings.DEFAULT_CONTENT_TYPE if c == '*/*' else c
+                       for c in cls.outputs]
+        return object.__new__(cls, *args, **kwargs)
     
     def __init__(self, request, *args, **kwargs):
-        self._request = request
+        values = locals()['args']
         
-        if request.method.upper() not in self.allows:
-            raise InvalidRequestError(request, 405) #Method not allowed
+        if self.parent:
+            self.__parent_instance = self.parent(request, **kwargs)
+            
+        self.__locals = {}
+        members = filter(lambda x: x not in ['self', 'request'],
+                         inspect.getargspec(self.__init__)[0])
+        for index, name in enumerate(members):
+            self.__locals.update({name: values[index]})
+            setattr(self, name, values[index])
+                
+        self.request = request
         
-        self.__matching_outputs = set(self.allows) & set(request['HTTP_ACCEPT'])
-        if not len(self.__matching_outputs):
-            raise  InvalidRequestError(request, 406) #Not acceptable
+        if self.parent:
+            self.__parent_instance = self.parent(request, **kwargs)
+        
+        if request.method not in (self.allow + self.__implicit_methods):
+            raise InvalidRequestError(self, 405) #Method not allowed
+        
+        if request.method != 'OPTIONS':
+            self.__matching_outputs = list(set(self.outputs) &
+                                           set(request.META.get('HTTP_ACCEPT',
+                                                                [])))
+            if not len(self.__matching_outputs):
+                raise InvalidRequestError(self, 406) #Not acceptable
+            
+    def build_uri(self):
+        ''''''
+        kwargs = self.__locals
+        if self.parent:
+            parent_uri = self.__parent_instance.build_uri()
+            kwargs.update(resolve(parent_uri)[2])
+        
+        return reverse(self.__class__.get_view_name(),
+                       kwargs=kwargs)
+
+    @property
+    def etag(self):
+        #FIXME: Change this to different default value.
+        return ETAG_WILDCARD
     
-    def _get(self, *args, **kwargs):
+    @property
+    def last_modified(self):
+        return self.etag.last_modified
+    
+    def _get(self, *args):
         '''
         GET method documentation.
         '''
-        if (self._request['HTTP_IF_MATCH'] is not self.etag or
-            self._request['HTTP_IF_NONE_MATCH'] is self.etag):
+        if ((self.request.META.get('HTTP_IF_MATCH', ETAG_WILDCARD) is not 
+             self.etag) or
+            self.request.META.get('HTTP_IF_NONE_MATCH') is self.etag):
             raise InvalidRequestError(self, 412) #Precondition Failed
         
-        if (self._request['HTTP_IF_MODIFIED_SINCE'] < self.etag or
-            self._request['HTTP_IF_UNMODIFIED_SINCE'] > self.etag):
+        if (self.request.META.get('HTTP_IF_MODIFIED_SINCE') < self.etag or
+            self.request.META.get('HTTP_IF_UNMODIFIED_SINCE') > self.etag):
             raise NotModifiedError(self, 304) #Not modified
         
         response = HttpResponse(self, 200)
+        response.content = self.uri
+        response['Content-Type'] = self.__matching_outputs[0]
         response['Etag'] = self.etag
         response['Last-Modified'] = self.last_modified
         return response
@@ -49,10 +106,10 @@ class HttpNode(object):
         '''
         PATCH method documentation.
         '''
-        if self._request['HTTP_IF_MATCH'] is self.etag:
+        if self.request['HTTP_IF_MATCH'] is self.etag:
             raise InvalidRequestError(self, 409) #Conflict
         
-        return HttpResponse(self._request, self)
+        return HttpResponse(self.request, self)
     
     def _put(self, *args, **kwargs):
         '''
@@ -71,7 +128,7 @@ class HttpNode(object):
         response.content = ''
         return response
     
-    def _options(self):
+    def _options(self, *args, **kwargs):
         '''
         The OPTIONS method represents a request for information about
         the communication options available on the request/response chain 
@@ -89,25 +146,56 @@ class HttpNode(object):
         response.
         '''
         response = HttpResponse(200)
-        response['Allow'] = ','.join(map(lambda x: x.upper(), self.allows))
+        response['Allow'] = ','.join(map(lambda x: x.upper(), self.allow))
         
         #TODO: Format the output in something people can use.        
-        docs = [getattr('_%s_%s', self.__class__.__name__, 
-                        method.lower()).__doc__ 
-                for method in filter('HEAD', self.allows)]
+        docs = filter(bool, [getattr(self, '_' + method.lower()).__doc__ 
+                             for method in self.allow])
         response.content = '\n'.join(docs)
-        
         return response
+    
+    def to_dict(self):
+        raise NotImplementedError()
+    
+    def serialize(self, fields=None, mime_type='application/json'):
+        #TODO: Define serialization engines
+        serializables = self.to_dict()
+        map(serializables.pop, fields)
+        raise NotImplementedError() 
+    
+    def __repr__(self):
+        try:
+            return self.serialize(mime_type=(self.__matching_outputs[0] 
+                                             if len(self.__matching_outputs)
+                                             else 'application/json'))
+        except:
+            return repr(super(Node, self))
+        
+    @classmethod
+    def get_full_pattern(cls):
+        if not cls.parent:
+            return cls.uri
+        
+        if not issubclass(cls.parent, Node):
+            raise ValueError('\'parent\' must be an instance of HttpNode')
+        
+        return cls.parent.get_full_pattern().rstrip('$') + cls.uri.lstrip('^')
+    
+    @classmethod
+    def get_view_name(cls):
+        if cls.name:
+            return cls.name
+        
+        return cls.__module__.replace('.', '_') + '_' + cls.__name__
         
     @classmethod
     def process(cls, request, *args, **kwargs):
-        instance = cls(request, **kwargs)
-        method_func = getattr(instance, '_%s_%s' % (instance.__class__.__name__,
-                                                    request.method.lower()))
-        return method_func(**kwargs)
+        instance = cls(HttpRequest(request), **kwargs)
+        method_func = getattr(instance, '_' + request.method.lower())
+        return method_func()
 
 
-class CollectionNode(HttpNode):
+class CollectionNode(Node):
     def fetch(self, query=None, offset=0, limit=200):
         if limit > self.max_limit:
             raise InvalidRequestError(self, 413) #Request Entity Too Large
@@ -121,10 +209,10 @@ class CollectionNode(HttpNode):
     def _get(self, query='', *args):
         response = super(CollectionNode, self)._get()
         
-        range = self._request['HTTP_RANGE']
+        range = self.request.META.get('HTTP_RANGE')
         offset, limit = (0, 200)
         if range:
-            response.status_code = 206 #Partial
+            response.status = 206 #Partial
             offset, limit = (range.offset, range.limit)
         else:
             response['Accept-Range'] = self.range_unit[1]
@@ -137,7 +225,7 @@ class CollectionNode(HttpNode):
         pass
 
 
-class ResourceNode(HttpNode):
+class ResourceNode(Node):
     
     def _get(self, *args, **kwargs):
         pass
