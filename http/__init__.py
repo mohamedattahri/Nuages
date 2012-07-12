@@ -8,7 +8,8 @@ from django.core.handlers.wsgi import STATUS_CODE_TEXT
 
 
 __all__ = ('HttpResponse', 'HttpResponse', 'Etag', 'Range', 'ContentRange', 
-           'InvalidRequestError', 'HttpException')
+           'InvalidRequestError', 'ForbiddenError', 'NotModifiedError',
+           'HttpException')
 
 
 class HttpException(Exception):
@@ -22,7 +23,12 @@ class HttpException(Exception):
 class InvalidRequestError(HttpException):
     def __init__(self, node, status=400):
         super(InvalidRequestError, self).__init__(node, status)
-        
+
+
+class ForbiddenError(HttpException):
+    def __init__(self, node, description):
+        super(ForbiddenError, self).__init__(node, 403, description)        
+
         
 class NotModifiedError(HttpException):
     def __init__(self, node):
@@ -102,7 +108,7 @@ class RequestMeta(collections.MutableMapping):
     
 class HttpRequest(object):
     '''
-    Wrapper around the Django HttpRequest with improved methods
+    Wrapper around the DJANGO HttpRequest with improved methods,
     and attributes.
     '''
     def __init__(self, base_request):
@@ -111,6 +117,16 @@ class HttpRequest(object):
         '''
         self._base_request = base_request
         self.META = RequestMeta(base_request.META)
+        
+    @property
+    def method(self):
+        '''
+        Support for the X-HTTP-Method-Override header.
+        Returns the value of the header if set, falls back to the real HTTP
+        method if not.
+        '''
+        return self.META.get('X_HTTP_METHOD_OVERRIDE',
+                             self._base_request.method)
         
     def __getattr__(self, name):
         '''
@@ -121,7 +137,6 @@ class HttpRequest(object):
     
     
 class HttpResponse(_HttpResponse):
-    ''''''
     def __init__(self, request=None, *args, **kwargs):
         self.request = request
         super(HttpResponse, self).__init__(*args, **kwargs)
