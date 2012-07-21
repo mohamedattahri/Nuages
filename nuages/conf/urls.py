@@ -24,10 +24,10 @@ def build_urls(source):
     elif inspect.ismodule(source):
         urls = map(__build_node_url, __get_nodes_from_module(source))
     elif type(source) == str:
-        urls = map(__build_node_url, 
+        urls = map(__build_node_url,
                    __get_nodes_from_module(import_module(source)))
     else:
-        raise Exception('%s must be a module or an HttpNode class instance' %
+        raise Exception('%s must be a module or an HttpNode class instance' % 
                         str(source))
         
     return patterns('', *urls)

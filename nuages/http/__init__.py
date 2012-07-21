@@ -7,7 +7,7 @@ from django.http import HttpResponse as _HttpResponse
 from django.core.handlers.wsgi import STATUS_CODE_TEXT
 
 
-__all__ = ('HttpResponse', 'HttpResponse', 'Etag', 'Range', 'ContentRange', 
+__all__ = ('HttpResponse', 'HttpResponse', 'Etag', 'Range', 'ContentRange',
            'InvalidRequestError', 'ForbiddenError', 'NotModifiedError',
            'HttpException')
 

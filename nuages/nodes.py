@@ -61,7 +61,7 @@ class Node(object):
             raise InvalidRequestError(self, 405) #Method not allowed
         
         if request.method != 'OPTIONS':
-            self._matching_outputs = list(set(self.outputs) &
+            self._matching_outputs = list(set(self.outputs) & 
                                           set(request.META.get('HTTP_ACCEPT',
                                                                 [])))
             if not len(self._matching_outputs):
@@ -200,7 +200,7 @@ class Node(object):
         self._try_read()
         
         mime_type = mime_type or self._matching_outputs[0]
-        data = dict([(k, v) for k,v in self.to_dict().items()
+        data = dict([(k, v) for k, v in self.to_dict().items()
                      if k not in fields])
         for node in self.__class__.get_children_nodes():
             try:

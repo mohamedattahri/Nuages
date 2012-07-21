@@ -1,0 +1,2 @@
+include README.markdown LICENCE CONTRIBUTORS VERSION example.py
+recursive-include nuages/*
