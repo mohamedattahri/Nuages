@@ -21,10 +21,10 @@ API_ENDPOINT = urlparse.urlparse(settings.NUAGES_API_ENDPOINT
 
 
 class Node(object):
-    uri = None
+    url = None
     name = None
     parent = None
-    secure = True
+    secure = False
     range_unit = None
     max_limit = 200
     outputs = ['application/json', 'application/xml',
@@ -90,17 +90,17 @@ class Node(object):
         if not self._can_write():
             raise ForbiddenError(self, 'Access to resource has been denied.')
     
-    def build_uri(self, absolute=True):
-        '''Dynamically builds the URI of the current node.
+    def build_url(self, absolute=True):
+        '''Dynamically builds the URL of the current node.
         
-        - absolute: specifies whether to return an absolute URI, including the
+        - absolute: specifies whether to return an absolute URL, including the
         API root configured in the settings.'''
-        self._try_read() #You don't need the URI of a resource you can't see.
+        self._try_read() #You don't need the URL of a resource you can't see.
         
         kwargs = self.__locals
         if self.parent:
-            parent_uri = self._parent_instance.build_uri(absolute=False)
-            kwargs.update(resolve(parent_uri)[2])
+            parent_url = self._parent_instance.build_url(absolute=False)
+            kwargs.update(resolve(parent_url)[2])
 
         relative = reverse(self.__class__.get_view_name(), kwargs=kwargs)
         if not absolute:
@@ -164,7 +164,7 @@ class Node(object):
         '''
         The OPTIONS method represents a request for information about
         the communication options available on the request/response chain 
-        identified by the Request-URI. This method allows the client to 
+        identified by the Request-URL. This method allows the client to 
         determine the options and/or requirements associated with a resource, 
         or the capabilities of a server, without implying a resource action or 
         initiating a resource retrieval.
@@ -199,7 +199,7 @@ class Node(object):
         for node_cls in self.__class__.get_children_nodes():
             try:
                 instance = node_cls(self.request, **self.__locals)
-                data.update({node_cls.__name__ : instance.build_uri()})
+                data.update({node_cls.__name__ : instance.build_url()})
             except ForbiddenError:
                 continue
                 
@@ -226,12 +226,12 @@ class Node(object):
     @classmethod
     def get_full_pattern(cls):
         if not cls.parent:
-            return cls.uri
+            return cls.url
         
         if not issubclass(cls.parent, Node):
             raise ValueError('\'parent\' must be an instance of HttpNode')
         
-        return cls.parent.get_full_pattern().rstrip('$') + cls.uri.lstrip('^')
+        return cls.parent.get_full_pattern().rstrip('$') + cls.url.lstrip('^')
     
     @classmethod
     def get_view_name(cls):

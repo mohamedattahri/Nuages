@@ -11,7 +11,7 @@ def __get_nodes_from_module(module):
             and issubclass(info[1], Node)]
     
 def __build_node_url(node):
-    if not node.uri:
+    if not node.url:
         raise ValueError('\'uri\' attribute is required')
     
     return url(node.get_full_pattern(), node.process,
