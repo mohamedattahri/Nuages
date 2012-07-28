@@ -10,9 +10,11 @@ from django.http import Http404, HttpResponse as _HttpResponse
 from django.core.handlers.wsgi import STATUS_CODE_TEXT
 
 
-__all__ = ('HttpResponse', 'HttpResponse', 'Etag', 'Range', 'ContentRange',
-           'InvalidRequestError', 'ForbiddenError', 'NotModifiedError',
-           'HttpException')
+__all__ = ('HttpResponse', 'HttpResponse', 'HttpException', 'NotModifiedError',
+           'InvalidRequestError', 'UnauthorizedError', 'ForbiddenError',
+           'MethodNotAllowedError', 'NotAcceptableError', 'ConflictError', 
+           'PreconditionFailedError', 'UnsupportedMediaTypeError',
+           'RequestRangeNotSatisfiableError', 'Etag', 'Range', 'ContentRange',)
 
 
 logger = logging.getLogger(__name__)
@@ -190,14 +192,14 @@ class InvalidRequestError(HttpException):
         super(InvalidRequestError, self).__init__(node, status, description)
         
 
-class Unauthorized(HttpException):
+class UnauthorizedError(HttpException):
     '''"The request requires user authentication.
     The response MUST include a WWW-Authenticate header field (section 14.47)
     containing a challenge applicable to the requested resource."
     
     (http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.4.2)'''
     def __init__(self, node=None):
-        super(Unauthorized, self).__init__(node, 401)
+        super(UnauthorizedError, self).__init__(node, 401)
         #TODO: Add a WWW-Authenticate header
 
 
