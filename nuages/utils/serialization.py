@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import re
 import json
 
 
@@ -20,6 +21,17 @@ def to_xml(data):
 
 
 def to_html(data):
-    return ('<!DOCTYPE html><html><head></head><body><ul>%s</ul></body></html>'
-            % ''.join(['<li>%s: %s</li>' % (k, v) for k, v in data.items()]))
-    
+    html = '<!DOCTYPE html><html><head></head><body><ul>'
+    entities = data if not type(data) is dict else [data]
+    for entity in entities:
+        html += '<li><ul>'    
+        for k, v in entity.items():
+            try:
+                if re.match(r'^\w+:\/\/.+$', v):
+                    v = '<a href="%s">%s</a>' % (v, v)
+            except:
+                pass
+            html += '<li>%s: %s</li>' % (k, v)
+        html += '</ul></li>'
+    html += '</ul></body></html>'
+    return html

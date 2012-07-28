@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
+import logging
 import inspect
 from django.conf.urls import url, patterns
 from django.utils.importlib import import_module
 from nuages.nodes import Node
+
+
+logger = logging.getLogger(__name__)
 
 
 def __get_nodes_from_module(module):
@@ -10,12 +14,17 @@ def __get_nodes_from_module(module):
             if info[1].__module__ == module.__name__ 
             and issubclass(info[1], Node)]
     
-def __build_node_url(node):
-    if not node.url:
+def __build_node_url(node_cls):
+    if not len(node_cls.get_allowed_methods(implicits=False)):
+        logger.warn('%s has none of the handlers required to define ' \
+                    'the HTTP methods it supports' %
+                    (node_cls.name or node_cls.__name__,))
+    
+    if not node_cls.url:
         raise ValueError('\'uri\' attribute is required')
     
-    return url(node.get_full_pattern(), node.process,
-               name=node.get_view_name())
+    return url(node_cls.get_full_url_pattern(), node_cls.process,
+               name=node_cls.get_view_name())
 
 def build_urls(source):
     urls = []
