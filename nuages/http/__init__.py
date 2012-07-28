@@ -2,8 +2,10 @@ import re
 import itertools
 import collections
 import logging
-from datetime import datetime
+import inspect
+from datetime import datetime, date
 from django.conf import settings
+from django.utils.http import parse_http_date, http_date
 from django.http import Http404, HttpResponse as _HttpResponse
 from django.core.handlers.wsgi import STATUS_CODE_TEXT
 
@@ -14,6 +16,7 @@ __all__ = ('HttpResponse', 'HttpResponse', 'Etag', 'Range', 'ContentRange',
 
 
 logger = logging.getLogger(__name__)
+ISO8601_DATEFORMAT = '%Y-%m-%dT%T.%fZ'
         
         
 def datetime_to_timestamp(datetm):
@@ -21,15 +24,26 @@ def datetime_to_timestamp(datetm):
     return float(datetm.strftime("%s") + 
                 ".%03d" % (datetm.time().microsecond / 1000))
     
+
+def datetime_to_str(datetm):
+    '''Returns a string representation of the current date'''
+    return http_date(datetime_to_timestamp(datetm))
+    
     
 def parse_datetime(datestr):
     '''Turns a ISO8601 or RFC1123 date string representation to a Python
     datetime instance.'''
-    if 'T' in datestr:
-        return datetime.strptime(datestr, '%Y-%m-%dT%T.%fZ')
+    try:
+        if 'GMT' in datestr:    
+            return datetime.fromtimestamp(parse_http_date(datestr))
+        
+        if 'T' in datestr:
+            return datetime.strptime(datestr, ISO8601_DATEFORMAT)
     
-    if 'GMT' in datestr:
-        return datetime.strptime(datestr, '%a, %d %b %Y %T GMT')
+        return datetime.fromtimestamp(datestr)
+    except(Exception), e:
+        raise RuntimeError('Unable to parse date \'%s\' (reason: %s)' %
+                           (datestr, repr(e)))
     
     
 class RequestMeta(collections.MutableMapping):
@@ -40,7 +54,7 @@ class RequestMeta(collections.MutableMapping):
     def __getitem__(self, key):
         try:
             key = self.__keytransform__(key)
-            header, value = (key, self.store[key])
+            header, value = key, self.store[key]
             
             if header in ['HTTP_IF_MATCH', 'HTTP_IF-NONE_MATCH']:
                 return (Etag.parse(value) if ';' not in value
@@ -50,7 +64,7 @@ class RequestMeta(collections.MutableMapping):
                 return Etag.parse(value)
             
             if header in ['HTTP_IF_MODIFIED_SINCE',
-                            'HTTP_IF_UNMODIFIED_SINCE']:
+                          'HTTP_IF_UNMODIFIED_SINCE']:
                 return parse_datetime(value)
             
             if header == 'Range':
@@ -62,10 +76,20 @@ class RequestMeta(collections.MutableMapping):
                                                  for i in value.split(';')]))
                 return [settings.DEFAULT_CONTENT_TYPE if i == '*/*' else i
                         for i in items]
-            
             return value
         except(ValueError), e:
             raise InvalidRequestError(400, repr(e))
+        except(Exception), e:
+            raise RuntimeError(repr(e))
+        
+    def get(self, key, default=None):
+        try:
+            if self.__keytransform__(key) in self.store:
+                return self.__getitem__(key)
+        except:
+            pass
+        
+        return default
     
     def __setitem__(self, key, value):
         self.store[self.__keytransform__(key)] = value
@@ -107,20 +131,34 @@ class HttpRequest(object):
     
     
 class HttpResponse(_HttpResponse):
-    '''A transparent wrapper around the Django HttpResponse class.
-    Currently not really useful, but this would save some time if the need
-    becomes clearer later.'''
-    def __init__(self, request=None, *args, **kwargs):
-        self.request = request
+    '''A transparent wrapper around the Django HttpResponse class.'''
+    def __init__(self, node=None, payload=None, *args, **kwargs):
+        self.__node = node
+        self.payload = None
         super(HttpResponse, self).__init__(*args, **kwargs)
         
+    def __setitem__(self, header, value):
+        '''Conversion of types'''
+        if type(value) in (datetime, date):
+            value = datetime_to_str(value)
+            
+        super(HttpResponse, self).__setitem__(header, value)
+       
+    @property
+    def content_type(self):
+        value = self.get('Content-Type', settings.DEFAULT_CONTENT_TYPE)
+        return value[:max(0, value.find('; charset')) or None].strip(' ')
+        
+    @property
+    def node(self):
+        return self.__node        
 
 class HttpException(Exception, HttpResponse):
     '''When raised, turns to an HTTP response detailing the error that
     occurred. 
     This class is both an Exception and an HttpResponse, which means it can
     be "raised', or be the value returned by a view.'''
-    def __init__(self, node, status=503, description=''):
+    def __init__(self, node=None, status=503, description=''):
         description = description or STATUS_CODE_TEXT[status]
         Exception.__init__(self, description)
         _HttpResponse.__init__(self, status=status,
@@ -141,14 +179,14 @@ class NotModifiedError(HttpException):
     with this status code. The 304 response MUST NOT contain a message-body,
     and thus is always terminated by the first empty line after the header
     fields."'''
-    def __init__(self, node):
+    def __init__(self, node=None):
         super(NotModifiedError, self).__init__(node, 304)
         
 
 class InvalidRequestError(HttpException):
     '''"The request could not be understood by the server due to malformed
     syntax"'''
-    def __init__(self, node, status=400, description=''):
+    def __init__(self, node=None, status=400, description=''):
         super(InvalidRequestError, self).__init__(node, status, description)
         
 
@@ -158,7 +196,7 @@ class Unauthorized(HttpException):
     containing a challenge applicable to the requested resource."
     
     (http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.4.2)'''
-    def __init__(self, node):
+    def __init__(self, node=None):
         super(Unauthorized, self).__init__(node, 401)
         #TODO: Add a WWW-Authenticate header
 
@@ -171,7 +209,7 @@ class ForbiddenError(HttpException):
     the refusal in the entity. If the server does not wish to make this
     information available to the client, the status code 404 (Not Found)
     can be used instead.'''
-    def __init__(self, node, description=None):
+    def __init__(self, node=None, description=None):
         if not description:
             raise Http404
         super(ForbiddenError, self).__init__(node, 403, description)
@@ -182,9 +220,10 @@ class MethodNotAllowedError(HttpException):
     resource identified by the Request-URI. The response MUST include an
     Allow header containing a list of valid methods for the requested
     resource."'''
-    def __init__(self, node):
+    def __init__(self, node=None):
         super(MethodNotAllowedError, self).__init__(node, 405)
-        self['Allow'] = ', '.join(node.allow)
+        node = node if inspect.isclass(node) else node.__class__
+        self['Allow'] = ', '.join(node.get_allowed_methods(False))
         
         
 class NotAcceptableError(HttpException):
@@ -208,14 +247,14 @@ class ConflictError(HttpException):
     user to recognize the source of the conflict. Ideally, the response entity
     would include enough information for the user or user agent to fix the
     problem; however, that might not be possible and is not required."'''
-    def __init__(self, node, description=None):
+    def __init__(self, node=None, description=None):
         super(ConflictError, self).__init__(node, 409, description)
         
         
 class PreconditionFailedError(HttpException):
     '''"The precondition given in one or more of the request-header fields
     evaluated to false when it was tested on the server."'''
-    def __init__(self, node, description=''):
+    def __init__(self, node=None, description=''):
         super(PreconditionFailedError, self).__init__(node, 412, description)
 
 
@@ -223,7 +262,7 @@ class UnsupportedMediaTypeError(HttpException):
     '''"The server is refusing to service the request because the entity of
     the request is in a format not supported by the requested resource for the
     requested method."'''
-    def __init__(self, node, description=''):
+    def __init__(self, node=None, description=''):
         super(UnsupportedMediaTypeError, self).__init__(node, 415, description)
         
         
@@ -233,7 +272,7 @@ class RequestedRangeNotSatisfiableError(HttpException):
     range-specifier values in this field overlap the current extent of the
     selected resource, and the request did not include an If-Range
     request-header field. "'''
-    def __init__(self, node, description=''):
+    def __init__(self, node=None, description=''):
         super(RequestedRangeNotSatisfiableError, self).__init__(node, 416,
                                                                 description)
 
@@ -245,16 +284,40 @@ class Etag(object):
     def __init__(self, last_modified, id_):
         self.__locals = locals()
         setattr(self, 'timestamp', datetime_to_timestamp(last_modified))
+        self.__locals['timestamp'] = self.timestamp
         map(lambda key: setattr(self, key, self.__locals[key]), self.__locals)
         
-    def __cmp__(self, instance):
-        return repr(self) == repr(instance)
+    def __eq__(self, instance):
+        '''A WILDCARD ETag is considered equal to any ETag value.'''
+        if instance == None:
+            return False
         
+        if repr(self) == '*' or repr(instance) == '*':
+            return True
+        
+        if self.id_ != instance.id_:
+            return False
+
+        return self.last_modified == instance.last_modified
+    
+    def __ne__(self, instance):
+        return not self.__eq__(instance)
+        
+    def __cmp__(self, instance):
+        '''A WILDCARD ETag is considered equal to any ETag value.'''
+        if instance == None:
+            return 1
+        
+        if repr(self) == '*' or repr(instance) == '*': 
+            return 0
+        
+        return self.last_modified - instance.last_modified
+    
     def __repr__(self):
         if not self.timestamp:
             return '*'
         
-        return '%(timestamp)-%(id_)' % self.__locals
+        return '%f-%s' % (self.timestamp, self.id_)
     
     @classmethod
     def parse(cls, raw_etag):
