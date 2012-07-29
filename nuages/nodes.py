@@ -4,29 +4,35 @@ import urlparse
 from django.conf import settings
 from django.utils.importlib import import_module
 from django.core.urlresolvers import reverse, resolve
+from nuages.forms import Form
 from nuages.http import (HttpRequest, HttpResponse,
-                         ETAG_WILDCARD, ForbiddenError,
-                         RequestedRangeNotSatisfiableError,)
+                         ETAG_WILDCARD, ForbiddenError, InvalidRequestError,
+                         RequestedRangeNotSatisfiableError,
+                         UnsupportedMediaTypeError)
 from nuages.utils import get_matching_mime_types
 
 
-__all__ = ('Node', 'CollectionNode', 'ResourceNode')
+__all__ = ('Node', 'CollectionNode', 'ResourceNode', 'parseQueryString',
+           'parseBody')
 
 '''
 Django settings:
 #NUAGES_API_ENDPOINT
 #NUAGES_MAX_COLLECTION_SIZE
 '''
-
 API_ENDPOINT = urlparse.urlparse(settings.NUAGES_API_ENDPOINT
                                  if hasattr(settings, 'NUAGES_API_ENDPOINT')
                                  else '')
+MAX_COLLECTION_SIZE = (1000 if not hasattr(settings,
+                                           'NUAGES_MAX_COLLECTION_SIZE')
+                       else settings.NUAGES_MAX_COLLECTION_SIZE)
 IDEMPOTENT_METHODS = ['GET', 'HEAD', 'OPTIONS']
 HTTP_METHODS_HANDLERS = {'GET'      : 'render',
                          'POST'     : 'create',
                          'PUT'      : 'replace',
                          'PATCH'    : 'patch',
                          'DELETE'   : 'delete', }
+FORM_URL_ENCODED = 'application/x-www-form-urlencoded'
 
 
 class Node(object):
@@ -206,7 +212,11 @@ class Node(object):
         response = HttpResponse(self, 200)
         response['Allow'] = ', '.join(map(lambda x: x.upper(), allowed))
         
-        #TODO: Format the output in something people can use.        
+        #TODO: Format the output in something people can use.
+#        for handler_func in [getattr(self, HTTP_METHODS_HANDLERS[m.upper()])
+#                             for m in allowed]:
+#            pass
+        
         docs = filter(bool,
                       [getattr(self, HTTP_METHODS_HANDLERS[m.upper()]).__doc__
                        for m in allowed])
@@ -242,8 +252,7 @@ class Node(object):
     def get_allowed_methods(cls, implicits=True):
         implicit_methods = ['HEAD', 'OPTIONS'] if implicits else []
         return [method for method, handler in HTTP_METHODS_HANDLERS.items()
-                if hasattr(cls, handler) and
-                inspect.ismethod(getattr(cls, handler))] + implicit_methods
+                if hasattr(cls, handler)] + implicit_methods
                 
     @classmethod
     def process(cls, request, **kwargs):
@@ -255,8 +264,7 @@ class Node(object):
 class CollectionNode(Node):
     label = None
     range_unit = None
-    max_limit = (200 if not hasattr(settings, 'NUAGES_MAX_COLLECTION_SIZE')
-                 else settings.NUAGES_MAX_COLLECTION_SIZE)
+    max_limit = MAX_COLLECTION_SIZE
     
     def __new__(cls, *args, **kwargs):
         cls.range_unit = cls.range_unit or cls.__name__ + 's'
@@ -289,3 +297,75 @@ class CollectionNode(Node):
 
 class ResourceNode(Node):
     pass
+
+
+class parseData(object):
+    '''Decorator '''
+    def __init__(self, form_cls):
+        if not issubclass(form_cls, Form):
+            raise ValueError('\'form_cls\' argument must be subclass of ' \
+                             'nuages.forms.Form')
+            
+        self.form_cls = form_cls
+        
+    def __call__(self, fn):
+        def wrapped_fn(*args, **kwargs):
+            required, optional = self.parse(args[0])
+            args += required
+            kwargs.update(optional)
+            return fn(*args, **kwargs)
+        return wrapped_fn
+    
+    def get_fields(self, form):
+        required, optional = (), {}
+        for key, field in form.fields.items():
+            if field.required:
+                required += (form.cleaned_data.get(key),)
+            else:
+                optional[key] = form.cleaned_data.get(key)
+        return required, optional
+        
+    def parse(self, node):
+        return (), {}
+
+class parseQueryString(parseData):
+    '''Added as a decorator, parses data from the query string and 
+    validates using the submitted Form instance.'''
+    def parse(self, node):
+        form = self.form_cls(node.request.GET)
+        if not form.is_valid():
+            raise InvalidRequestError(form.errors_as_text())
+        return self.get_fields(form)
+
+class parseBody(parseData):
+    '''Added as a decorator, takes the data in the body of the request,
+    checks if it came in a expected format, validates it using the submitted
+    Form instance, and passes it as required and optional parameters to the
+    handler method. 
+    
+    Can only decorate handlers of POST, PUT and PATCH methods.
+    
+    Non url-encoded data is passed \'as is\' in 'payload' attribute.
+    '''
+    def __init__(self, form_cls, content_types=[FORM_URL_ENCODED]):
+        self.content_types = content_types
+        super(parseBody, self).__init__(form_cls)
+        
+    def parse(self, node):
+        if node.request.method in ['OPTIONS', 'HEAD', 'GET', 'DELETE']:
+            raise RuntimeError('Invalid %s decorator. %s ' \
+                               'methods can\'t carry data in their bodies.' %
+                               (self.__class__.__name__, node.request.method))
+            
+        request_content_type = node.request.META.get('CONTENT_TYPE')
+        if (node.request.META.get('CONTENT_LENGTH', 0) and
+            request_content_type not in self.content_types):
+            raise UnsupportedMediaTypeError
+            
+        if (request_content_type != FORM_URL_ENCODED):
+            return (), {'payload': node.request.raw_post_data}
+            
+        form = self.form_cls(node.request.POST)
+        if not form.is_valid():
+            raise InvalidRequestError(form.errors_as_text())
+        return self.get_fields(form)
