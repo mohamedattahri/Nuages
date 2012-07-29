@@ -124,7 +124,7 @@ class HttpRequest(object):
         Returns the value of the header if set, falls back to the real HTTP
         method if not.'''
         return self.META.get('X_HTTP_METHOD_OVERRIDE',
-                             self._base_request.method)
+                             self._base_request.method).upper()
         
     def __getattr__(self, name):
         '''Allows all the attributes of the base HttpRequest to be mirrored in
