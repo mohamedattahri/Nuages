@@ -225,7 +225,7 @@ class MethodNotAllowedError(HttpException):
     def __init__(self, node=None):
         super(MethodNotAllowedError, self).__init__(node, 405)
         node = node if inspect.isclass(node) else node.__class__
-        self['Allow'] = ', '.join(node.get_allowed_methods(False))
+        self['Allow'] = ', '.join(node.get_allowed_methods(implicits=False))
         
         
 class NotAcceptableError(HttpException):
@@ -290,10 +290,10 @@ class Etag(object):
         map(lambda key: setattr(self, key, self.__locals[key]), self.__locals)
         
     def __eq__(self, instance):
-        '''A WILDCARD ETag is considered equal to any ETag value.'''
-        if instance == None:
+        if not instance:
             return False
         
+        #A WILDCARD ETag is considered equal to any ETag value.
         if repr(self) == '*' or repr(instance) == '*':
             return True
         
@@ -306,10 +306,10 @@ class Etag(object):
         return not self.__eq__(instance)
         
     def __cmp__(self, instance):
-        '''A WILDCARD ETag is considered equal to any ETag value.'''
-        if instance == None:
+        if not instance:
             return 1
         
+        #A WILDCARD ETag is considered equal to any ETag value.
         if repr(self) == '*' or repr(instance) == '*': 
             return 0
         
