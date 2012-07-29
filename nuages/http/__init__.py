@@ -164,7 +164,7 @@ class HttpException(Exception, HttpResponse):
         description = description or STATUS_CODE_TEXT[status]
         Exception.__init__(self, description)
         HttpResponse.__init__(self, status=status,
-                               content=self.format_description())
+                               payload=self.format_description())
         self.__node = node
         
     @property
