@@ -163,7 +163,7 @@ class HttpException(Exception, HttpResponse):
     def __init__(self, node=None, status=503, description=''):
         description = description or STATUS_CODE_TEXT[status]
         Exception.__init__(self, description)
-        _HttpResponse.__init__(self, status=status,
+        HttpResponse.__init__(self, status=status,
                                content=self.format_description())
         self.__node = node
         
