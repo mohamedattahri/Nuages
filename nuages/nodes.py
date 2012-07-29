@@ -9,7 +9,7 @@ from nuages.http import (HttpRequest, HttpResponse,
                          ETAG_WILDCARD, ForbiddenError, InvalidRequestError,
                          RequestedRangeNotSatisfiableError,
                          UnsupportedMediaTypeError)
-from nuages.utils import get_matching_mime_types
+from nuages.utils import get_matching_mime_types, doc
 
 
 __all__ = ('Node', 'CollectionNode', 'ResourceNode', 'parseQueryString',
@@ -211,17 +211,30 @@ class Node(object):
         allowed = self.__class__.get_allowed_methods(implicits=False)
         response = HttpResponse(self, 200)
         response['Allow'] = ', '.join(map(lambda x: x.upper(), allowed))
-        
-        #TODO: Format the output in something people can use.
-#        for handler_func in [getattr(self, HTTP_METHODS_HANDLERS[m.upper()])
-#                             for m in allowed]:
-#            pass
-        
-        docs = filter(bool,
-                      [getattr(self, HTTP_METHODS_HANDLERS[m.upper()]).__doc__
-                       for m in allowed])
-        response.content = '\n'.join(docs)
+        response.content = self.__class__.generate_doc()
         return response
+    
+    @classmethod
+    def generate_doc(cls):
+        allowed = cls.get_allowed_methods(implicits=False)
+        node_doc = doc.Node(name=cls.label,
+                            url_regex=cls.get_full_url_pattern(),
+                            accept=cls.outputs)
+        for i, handler_func in enumerate([getattr(cls,
+                                                  HTTP_METHODS_HANDLERS[m])
+                                          for m in allowed]):
+            qstr_deco = handler_func.func_dict.get(parseQueryString.__name__)
+            qstr_form = qstr_deco.form_cls if qstr_deco else None
+            body_deco = handler_func.func_dict.get(parseBody.__name__)
+            body_form = body_deco.form_cls if body_deco else None
+            method_doc = doc.Method(verb=allowed[i],
+                                    description=handler_func.__doc__,
+                                    queryString_form=qstr_form,
+                                    body_form=body_form,
+                                    content_types=(body_deco.content_types if
+                                                   body_deco else []))
+            node_doc.methods.append(method_doc)
+        return node_doc
     
     @classmethod
     def get_children_nodes(cls):
@@ -314,6 +327,7 @@ class parseData(object):
             args += required
             kwargs.update(optional)
             return fn(*args, **kwargs)
+        wrapped_fn.func_dict[self.__class__.__name__] = self
         return wrapped_fn
     
     def get_fields(self, form):

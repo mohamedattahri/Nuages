@@ -14,3 +14,4 @@ class Form(Form):
     def get_first_error(self):
         for v in self.errors.values():
             return ';'.join([force_unicode(i) for i in v])
+            
