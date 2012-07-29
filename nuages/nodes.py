@@ -4,20 +4,24 @@ import urlparse
 from django.conf import settings
 from django.utils.importlib import import_module
 from django.core.urlresolvers import reverse, resolve
-from nuages.http import (HttpRequest, HttpResponse, InvalidRequestError,
-                         Range, ETAG_WILDCARD, ForbiddenError,
+from nuages.http import (HttpRequest, HttpResponse,
+                         ETAG_WILDCARD, ForbiddenError,
                          RequestedRangeNotSatisfiableError,)
 from nuages.utils import get_matching_mime_types
 
 
 __all__ = ('Node', 'CollectionNode', 'ResourceNode')
 
+'''
+Django settings:
+#NUAGES_API_ENDPOINT
+#NUAGES_MAX_COLLECTION_SIZE
+'''
 
 API_ENDPOINT = urlparse.urlparse(settings.NUAGES_API_ENDPOINT
                                  if hasattr(settings, 'NUAGES_API_ENDPOINT')
                                  else '')
-
-
+IDEMPOTENT_METHODS = ['GET', 'HEAD', 'OPTIONS']
 HTTP_METHODS_HANDLERS = {'GET'      : 'render',
                          'POST'     : 'create',
                          'PUT'      : 'replace',
@@ -26,6 +30,7 @@ HTTP_METHODS_HANDLERS = {'GET'      : 'render',
 
 
 class Node(object):
+    label= None
     url = None
     name = None
     parent = None
@@ -34,8 +39,9 @@ class Node(object):
                'application/xml+xhtml', 'text/html', '*/*']
     
     def __new__(cls, *args, **kwargs):
-        cls.outputs = [settings.DEFAULT_CONTENT_TYPE if c == '*/*' else c
-                       for c in cls.outputs]
+        cls.label = cls.label or cls.__name__.lower()
+        cls.outputs = set([settings.DEFAULT_CONTENT_TYPE if c == '*/*' else c
+                       for c in cls.outputs])
         return object.__new__(cls, *args, **kwargs)
     
     def __init__(self, request, *args, **kwargs):
@@ -92,6 +98,21 @@ class Node(object):
         if not self._can_write():
             raise ForbiddenError(self, 'Access to resource has been denied.')
     
+    def _try_handle_request(self):
+        func_name = ('_can_%s' %
+                     HTTP_METHODS_HANDLERS[self.request.method])
+
+        if hasattr(self, func_name):
+            if not getattr(self, func_name)():
+                raise ForbiddenError(self,
+                                     'Access to resource has been denied.')
+            return 
+        
+        if self.request.method.upper() in IDEMPOTENT_METHODS:
+            return self._try_read()
+        
+        return self._try_write()
+    
     def build_url(self, absolute=True):
         '''Dynamically builds the URL of the current node.
         
@@ -116,21 +137,25 @@ class Node(object):
         '''Gets the ETag of the current node.'''
         return ETAG_WILDCARD
     
+    def render_in_collection(self):
+        return {self.label: {'uri': self.build_url(absolute=True),
+                            'etag': self.get_etag()}}
+    
     def _call_http_method_handler(self, *args, **kwargs):
         handler = getattr(self,
                           HTTP_METHODS_HANDLERS[self.request.method.upper()])
         return handler(*args, **kwargs)
     
     def _process_get(self):
-        self._try_read()
+        self._try_handle_request()
         
         response = HttpResponse(self, content_type=self._matching_outputs[0])
         data = self._call_http_method_handler()
         
         for node_cls in self.__class__.get_children_nodes():
             try:
-                node_url = node_cls(self.request, **self.__locals).build_url()
-                data[node_cls.name or node_cls.__name__.lower()] = node_url
+                child_node = node_cls(self.request, **self.__locals)
+                data.update(child_node.render_in_collection())
             except ForbiddenError:
                 continue
             except TypeError:
@@ -140,16 +165,20 @@ class Node(object):
         return response
     
     def _process_post(self):
-        raise NotImplementedError()
+        self._try_handle_request()
+        self._call_http_method_handler()
     
     def _process_patch(self):
-        raise NotImplementedError()
+        self._try_handle_request()
+        self._call_http_method_handler()
     
     def _process_put(self):
-        raise NotImplementedError()
+        self._try_handle_request()
+        self._call_http_method_handler()
     
     def _process_delete(self):
-        raise NotImplementedError()
+        self._try_handle_request()
+        self._call_http_method_handler()
     
     def _process_head(self):
         '''The HEAD method is identical to GET except that the server MUST NOT
@@ -224,38 +253,39 @@ class Node(object):
 
 
 class CollectionNode(Node):
+    label = None
     range_unit = None
-    max_limit = 200
+    max_limit = (200 if not hasattr(settings, 'NUAGES_MAX_COLLECTION_SIZE')
+                 else settings.NUAGES_MAX_COLLECTION_SIZE)
     
     def __new__(cls, *args, **kwargs):
-        cls.range_unit = cls.range_unit or cls.__name__ + 's' 
+        cls.range_unit = cls.range_unit or cls.__name__ + 's'
+        cls.label = cls.label or cls.range_unit
         return object.__new__(cls, *args, **kwargs)
-        
+    
     def _process_get(self, fields=[]):
+        self._try_handle_request()
         response = HttpResponse(self, content_type=self._matching_outputs[0])
         
         request_range = self.request.META.get('HTTP_RANGE')
+        kwparams = {}
         if not request_range:
-            used_paging = True
-            request_range = Range(self.range_unit, 0, self.max_limit)
             response['Accept-Range'] = self.range_unit
-        
-        items = self._call_http_method_handler(offset=request_range.offset,
-                                              limit=request_range.limit)
+        else:
+            kwparams = {'offset': request_range.offset,
+                        'limit' : request_range.limit}    
+        items = self._call_http_method_handler(**kwparams)
         
         if not len(items):
-            if used_paging:
+            if request_range:
                 raise RequestedRangeNotSatisfiableError(self)
             response.status = 204
-            return response
-        
-        response.status = 206 if used_paging else 200
-        response.payload = [item.render_in_collection()
-                            for item in items]
+        else:
+            response.status = 206 if request_range else 200
+            response.payload = [item.render_in_collection() for item in items]
+            
         return response
 
 
 class ResourceNode(Node):
-    def render_in_collection(self):
-        return {'uri': self.build_url(absolute=True),
-                'etag': self.get_etag()}
+    pass
