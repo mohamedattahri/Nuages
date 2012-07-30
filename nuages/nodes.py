@@ -313,7 +313,11 @@ class ResourceNode(Node):
 
 
 class parseData(object):
-    '''Decorator '''
+    '''Decorates Node handler methods and allows incoming data to be parsed
+    and validated using a Form.
+    
+    Decorated Node handler method is called with mandatory parameters as args,
+    and optional ones as kwargs'''
     def __init__(self, form_cls):
         if not issubclass(form_cls, Form):
             raise ValueError('\'form_cls\' must be a subclass of ' \
@@ -346,6 +350,7 @@ class parseData(object):
     def parse(self, node):
         return (), {}
 
+
 class parseQueryString(parseData):
     '''Added as a decorator, parses data from the query string and 
     validates it using the submitted Form instance.'''
@@ -354,6 +359,7 @@ class parseQueryString(parseData):
         if not form.is_valid():
             raise InvalidRequestError(form.errors_as_text())
         return self.get_fields(form)
+
 
 class parseBody(parseData):
     '''Added as a decorator, takes the data in the body of the request,
