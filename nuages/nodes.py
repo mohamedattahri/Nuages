@@ -316,12 +316,16 @@ class parseData(object):
     '''Decorator '''
     def __init__(self, form_cls):
         if not issubclass(form_cls, Form):
-            raise ValueError('\'form_cls\' argument must be subclass of ' \
+            raise ValueError('\'form_cls\' must be a subclass of ' \
                              'nuages.forms.Form')
             
         self.form_cls = form_cls
         
     def __call__(self, fn):
+        if fn.func_name not in HTTP_METHODS_HANDLERS.values():
+            raise RuntimeError('%s can only decorate Node handler methods' %
+                               self.__class__.__name__)
+        
         def wrapped_fn(*args, **kwargs):
             required, optional = self.parse(args[0])
             args += required
@@ -344,7 +348,7 @@ class parseData(object):
 
 class parseQueryString(parseData):
     '''Added as a decorator, parses data from the query string and 
-    validates using the submitted Form instance.'''
+    validates it using the submitted Form instance.'''
     def parse(self, node):
         form = self.form_cls(node.request.GET)
         if not form.is_valid():
@@ -353,7 +357,7 @@ class parseQueryString(parseData):
 
 class parseBody(parseData):
     '''Added as a decorator, takes the data in the body of the request,
-    checks if it came in a expected format, validates it using the submitted
+    checks if it came in a supported format, validates it using the submitted
     Form instance, and passes it as required and optional parameters to the
     handler method. 
     
