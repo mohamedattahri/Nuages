@@ -20,12 +20,8 @@ Django settings:
 #NUAGES_API_ENDPOINT
 #NUAGES_MAX_COLLECTION_SIZE
 '''
-API_ENDPOINT = urlparse.urlparse(settings.NUAGES_API_ENDPOINT
-                                 if hasattr(settings, 'NUAGES_API_ENDPOINT')
-                                 else '')
-MAX_COLLECTION_SIZE = (1000 if not hasattr(settings,
-                                           'NUAGES_MAX_COLLECTION_SIZE')
-                       else settings.NUAGES_MAX_COLLECTION_SIZE)
+API_ENDPOINT = urlparse.urlparse(getattr(settings, 'NUAGES_API_ENDPOINT', ''))
+MAX_COLLECTION_SIZE = getattr(settings, 'NUAGES_MAX_COLLECTION_SIZE', 1000)
 IDEMPOTENT_METHODS = ['GET', 'HEAD', 'OPTIONS']
 HTTP_METHODS_HANDLERS = {'GET'      : 'render',
                          'POST'     : 'create',
