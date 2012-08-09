@@ -12,7 +12,7 @@ from django.core.handlers.wsgi import STATUS_CODE_TEXT
 
 __all__ = ('HttpResponse', 'HttpResponse', 'HttpException', 'NotModifiedError',
            'InvalidRequestError', 'UnauthorizedError', 'ForbiddenError',
-           'MethodNotAllowedError', 'NotAcceptableError', 'ConflictError', 
+           'MethodNotAllowedError', 'NotAcceptableError', 'ConflictError',
            'PreconditionFailedError', 'UnsupportedMediaTypeError',
            'RequestRangeNotSatisfiableError', 'Etag', 'Range', 'ContentRange',)
 
@@ -44,7 +44,7 @@ def parse_datetime(datestr):
     
         return datetime.fromtimestamp(datestr)
     except(Exception), e:
-        raise RuntimeError('Unable to parse date \'%s\' (reason: %s)' %
+        raise RuntimeError('Unable to parse date \'%s\' (reason: %s)' % 
                            (datestr, repr(e)))
     
     
@@ -128,7 +128,7 @@ class HttpRequest(object):
         
     def __getattr__(self, name):
         '''Allows all the attributes of the base HttpRequest to be mirrored in
-        the wrapper, unless they've been overridden. '''
+        the wrapper, unless they've been overridden.'''
         return getattr(self._base_request, name)       
     
     
@@ -154,6 +154,7 @@ class HttpResponse(_HttpResponse):
     @property
     def node(self):
         return self.__node        
+
 
 class HttpException(Exception, HttpResponse):
     '''When raised, turns to an HTTP response detailing the error that
