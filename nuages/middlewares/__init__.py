@@ -29,10 +29,10 @@ class RequestHandlerMiddleware():
     def process_view(self, request, view_func, view_args, view_kwargs):
         '''Validates a request before it calls the appropriate processing
         method in the node.'''
-        try:
-            request = HttpRequest(request)
+        try:           
             node_cls = view_func.im_self
-            
+            request = HttpRequest(request)
+        
             if not len(node_cls.get_allowed_methods(implicits=False)):
                 raise Http404
             
@@ -44,14 +44,16 @@ class RequestHandlerMiddleware():
                     raise NotAcceptableError(node_cls)
         except(HttpException), http_exception:
             return self.process_exception(request, http_exception)
+        except AttributeError:
+            pass
     
     def process_response(self, request, response):
         '''Completes the response with global headers that might have not
         been defined at the node level'''
         if (not issubclass(response.__class__, HttpResponse) or
             not response.node or 
-            isinstance(response, HttpException) 
-            or request.method == 'OPTIONS'):
+            isinstance(response, HttpException) or
+            request.method == 'OPTIONS'):
             return response
         
         try:
