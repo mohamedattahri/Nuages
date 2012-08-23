@@ -74,7 +74,7 @@ class RequestHandlerMiddleware():
             
             add_header_if_undefined(response, 'Strict-Transport-Security',
                                     'max-age=99999999')
-            patch_vary_headers(response, ['accept'])
+            patch_vary_headers(response, ['Accept'])
             
             #Content type adjustments
             content_type = response.get('Content-Type',
