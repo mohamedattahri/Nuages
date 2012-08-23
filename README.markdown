@@ -17,7 +17,7 @@ Nuages is an attempt to create an easy way to expose a - truly - RESTful API usi
 
 
 #Requirements
-Python 2.7 + Django 1.4
+Python 2.7, Django 1.3+
 
 
 #How to help

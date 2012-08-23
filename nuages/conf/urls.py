@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 import logging
 import inspect
-from django.conf.urls import url, patterns
+try:
+    from django.conf.urls import url, patterns
+except ImportError:
+    #Deprecated, will be removed in Django 1.6
+    from django.conf.urls.defaults import url, patterns 
 from django.utils.importlib import import_module
 from nuages.nodes import Node
 
