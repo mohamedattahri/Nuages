@@ -10,7 +10,7 @@ setup(
     version=open('VERSION').read(),
     author=u'Greendizer',
     package_data={'nuages' : ['../VERSION']},
-    install_requires=['django >= 1.4',],
+    install_requires=['django >= 1.3',],
     url='https://github.com/mohamedattahri/Nuages',
     license=open('LICENCE').read(),
     description='Django + REST',
