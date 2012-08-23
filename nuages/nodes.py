@@ -51,8 +51,6 @@ class Node(object):
          
         - request: Current HttpRequest instance.
         - *args, **kwargs are passed all the way to the top parent node.'''
-        self._try_cross()    
-            
         self.request = request
         members = filter(lambda x: x not in ['self', 'request',
                                              'parent_instance'],
@@ -66,6 +64,8 @@ class Node(object):
             self.request = self._parent_instance.request
         elif self.parent:
             self._parent_instance = self.parent(request, **kwargs)
+            
+        self._try_cross()
             
         self._matching_outputs = get_matching_mime_types(request,
                                                          self.__class__)
