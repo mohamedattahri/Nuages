@@ -141,7 +141,7 @@ class Node(object):
     
     def render_in_collection(self):
         return {self.label: {'uri': self.build_url(absolute=True),
-                            'etag': self.get_etag()}}
+                            'etag': str(self.get_etag())}}
     
     def _call_http_method_handler(self, *args, **kwargs):
         handler = getattr(self,
