@@ -160,8 +160,6 @@ class Node(object):
                 data.update(child_node.render_in_collection())
             except ForbiddenError:
                 continue
-            except TypeError:
-                continue
             
         response.payload = data    
         return response
