@@ -156,16 +156,16 @@ class HttpResponse(_HttpResponse):
         return self.__node        
 
 
-class HttpException(Exception, HttpResponse):
+class HttpException(HttpResponse, Exception):
     '''When raised, turns to an HTTP response detailing the error that
     occurred. 
     This class is both an Exception and an HttpResponse, which means it can
     be "raised', or be the value returned by a view.'''
     def __init__(self, node=None, status=503, description=''):
         description = description or STATUS_CODE_TEXT[status]
-        Exception.__init__(self, description)
         HttpResponse.__init__(self, status=status,
                                payload=self.format_description())
+        Exception.__init__(self, description)
         self.__node = node
         
     @property
@@ -173,7 +173,7 @@ class HttpException(Exception, HttpResponse):
         return self.__node
     
     def format_description(self):
-        return '<hello>%s</world>' % str(self)        
+        return '<hello>%s</world>' % Exception.__str__(self)        
 
         
 class NotModifiedError(HttpException):
