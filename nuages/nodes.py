@@ -236,8 +236,10 @@ class Node(object):
     def get_children_nodes(cls):
         root_urlconf = import_module(settings.ROOT_URLCONF)
         return [url.callback.im_self for url in root_urlconf.urlpatterns
-                if url.callback.im_self.parent and
-                issubclass(url.callback.im_self.parent, cls) ]
+                if hasattr(url.callback, 'im_self') and
+                hasattr(url.callback.im_self, 'parent') and
+                url.callback.im_self.parent and
+                issubclass(url.callback.im_self.parent, cls)]
         
     @classmethod
     def get_full_url_pattern(cls):
