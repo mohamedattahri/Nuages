@@ -151,6 +151,16 @@ class HttpResponse(_HttpResponse):
         self.payload = None
         super(HttpResponse, self).__init__(*args, **kwargs)
         
+    def __getattr(self, attr):
+        if attr == 'status':
+            attr = 'status_code'
+        return super(HttpResponse, self).__getattr__(attr)
+        
+    def __setattr__(self, attr, val):
+        if attr == 'status':
+            attr = 'status_code'
+        return super(HttpResponse, self).__setattr__(attr, val)
+        
     def __setitem__(self, header, value):
         '''Conversion of types'''
         if type(value) in (datetime, date):
