@@ -72,8 +72,10 @@ class RequestHandlerMiddleware():
                                  last_modified - DAY_DELTA) >= last_modified):
                 raise NotModifiedError(self)
             
-            add_header_if_undefined(response, 'Strict-Transport-Security',
-                                    'max-age=99999999')
+            if request.is_secure():
+                add_header_if_undefined(response, 'Strict-Transport-Security',
+                                        'max-age=99999999')
+            
             patch_vary_headers(response, ['Accept'])
             
             #Content type adjustments
