@@ -320,17 +320,20 @@ class Etag(object):
         map(lambda key: setattr(self, key, self.__locals[key]), self.__locals)
         
     def __eq__(self, instance):
-        if not instance:
+        try:
+            if not instance:
+                return False
+            
+            #A WILDCARD ETag is considered equal to any ETag value.
+            if repr(self) == '*' or repr(instance) == '*':
+                return True
+            
+            if self.id_ != instance.id_:
+                return False
+    
+            return self.last_modified == instance.last_modified
+        except:
             return False
-        
-        #A WILDCARD ETag is considered equal to any ETag value.
-        if repr(self) == '*' or repr(instance) == '*':
-            return True
-        
-        if self.id_ != instance.id_:
-            return False
-
-        return self.last_modified == instance.last_modified
     
     def __ne__(self, instance):
         return not self.__eq__(instance)
