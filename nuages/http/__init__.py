@@ -135,7 +135,7 @@ class HttpRequest(object):
         '''Support for the X-HTTP-Method-Override header.
         Returns the value of the header if set, falls back to the real HTTP
         method if not.'''
-        return self.META.get('X_HTTP_METHOD_OVERRIDE',
+        return self.META.get('HTTP_X_HTTP_METHOD_OVERRIDE',
                              self._base_request.method).upper()
         
     def __getattr__(self, name):
