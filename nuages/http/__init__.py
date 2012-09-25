@@ -10,7 +10,7 @@ from django.http import Http404, HttpResponse as _HttpResponse
 from django.core.handlers.wsgi import STATUS_CODE_TEXT
 
 
-__all__ = ('HttpResponse', 'HttpResponse', 'HttpException', 'NotModifiedError',
+__all__ = ('HttpResponse', 'HttpResponse', 'HttpError', 'NotModifiedError',
            'InvalidRequestError', 'UnauthorizedError', 'ForbiddenError',
            'MethodNotAllowedError', 'NotAcceptableError', 'ConflictError',
            'PreconditionFailedError', 'UnsupportedMediaTypeError',
@@ -168,27 +168,33 @@ class HttpResponse(_HttpResponse):
         return self.__node        
 
 
-class HttpException(HttpResponse, Exception):
+class HttpError(HttpResponse, Exception):
     '''When raised, turns to an HTTP response detailing the error that
     occurred. 
     This class is both an Exception and an HttpResponse, which means it can
     be "raised', or be the value returned by a view.'''
     def __init__(self, node=None, status=503, description=''):
-        description = description or STATUS_CODE_TEXT[status]
-        HttpResponse.__init__(self, status=status,
-                               payload=self.format_description())
-        Exception.__init__(self, description)
+        HttpResponse.__init__(self, status=status)
+        Exception.__init__(self)
+        self.message = description or STATUS_CODE_TEXT.get(status)
         self.__node = node
+        self.content = str(self)
         
     @property
     def node(self):
         return self.__node
     
-    def format_description(self):
-        return '<hello>%s</world>' % Exception.__str__(self)        
+    def __str__(self):
+        return self.message
+    
+
+class NotFoundError(HttpError):
+    ''''''
+    def __init__(self, node=None):
+        super(NotFoundError, self).__init__(node, 404)
 
         
-class NotModifiedError(HttpException):
+class NotModifiedError(HttpError):
     '''"If the client has performed a conditional GET request and access is
     allowed, but the document has not been modified, the server SHOULD respond
     with this status code. The 304 response MUST NOT contain a message-body,
@@ -198,14 +204,15 @@ class NotModifiedError(HttpException):
         super(NotModifiedError, self).__init__(node, 304)
         
 
-class InvalidRequestError(HttpException):
+class InvalidRequestError(HttpError):
     '''"The request could not be understood by the server due to malformed
     syntax"'''
     def __init__(self, node=None, status=400, description=''):
+#        assert False, description
         super(InvalidRequestError, self).__init__(node, status, description)
         
 
-class UnauthorizedError(HttpException):
+class UnauthorizedError(HttpError):
     '''"The request requires user authentication.
     The response MUST include a WWW-Authenticate header field (section 14.47)
     containing a challenge applicable to the requested resource."
@@ -216,7 +223,7 @@ class UnauthorizedError(HttpException):
         #TODO: Add a WWW-Authenticate header
 
 
-class ForbiddenError(HttpException):
+class ForbiddenError(HttpError):
     '''The server understood the request, but is refusing to fulfill it.
     Authorization will not help and the request SHOULD NOT be repeated.
     If the request method was not HEAD and the server wishes to make public
@@ -230,7 +237,7 @@ class ForbiddenError(HttpException):
         super(ForbiddenError, self).__init__(node, 403, description)
         
         
-class MethodNotAllowedError(HttpException):
+class MethodNotAllowedError(HttpError):
     '''"The method specified in the Request-Line is not allowed for the
     resource identified by the Request-URI. The response MUST include an
     Allow header containing a list of valid methods for the requested
@@ -241,7 +248,7 @@ class MethodNotAllowedError(HttpException):
         self['Allow'] = ', '.join(node.get_allowed_methods(implicits=False))
         
         
-class NotAcceptableError(HttpException):
+class NotAcceptableError(HttpError):
     '''"The resource identified by the request is only capable of generating
     response entities which have content characteristics not acceptable
     according to the accept headers sent in the request.
@@ -254,7 +261,7 @@ class NotAcceptableError(HttpException):
         super(NotAcceptableError, self).__init__(node, 406, description)
         
 
-class ConflictError(HttpException):
+class ConflictError(HttpError):
     '''"The request could not be completed due to a conflict with the current
     state of the resource. This code is only allowed in situations where it is 
     expected that the user might be able to resolve the conflict and resubmit
@@ -266,14 +273,14 @@ class ConflictError(HttpException):
         super(ConflictError, self).__init__(node, 409, description)
         
         
-class PreconditionFailedError(HttpException):
+class PreconditionFailedError(HttpError):
     '''"The precondition given in one or more of the request-header fields
     evaluated to false when it was tested on the server."'''
     def __init__(self, node=None, description=''):
         super(PreconditionFailedError, self).__init__(node, 412, description)
 
 
-class UnsupportedMediaTypeError(HttpException):
+class UnsupportedMediaTypeError(HttpError):
     '''"The server is refusing to service the request because the entity of
     the request is in a format not supported by the requested resource for the
     requested method."'''
@@ -281,7 +288,7 @@ class UnsupportedMediaTypeError(HttpException):
         super(UnsupportedMediaTypeError, self).__init__(node, 415, description)
         
         
-class RequestedRangeNotSatisfiableError(HttpException):
+class RequestedRangeNotSatisfiableError(HttpError):
     '''"A server SHOULD return a response with this status code if a request
     included a Range request-header field (section 14.35), and none of the
     range-specifier values in this field overlap the current extent of the
