@@ -1,19 +1,22 @@
 # -*- coding: utf-8 -*-
 import inspect
 import urlparse
+import hashlib
 from django.conf import settings
 from django.utils.importlib import import_module
 from django.core.urlresolvers import reverse, resolve
-from nuages.forms import Form
+from django.core.cache import cache
+from nuages.forms import Form, UnexpectedFieldsError
 from nuages.http import (HttpRequest, HttpResponse,
                          ETAG_WILDCARD, ForbiddenError, InvalidRequestError,
                          RequestedRangeNotSatisfiableError,
-                         UnsupportedMediaTypeError)
+                         UnsupportedMediaTypeError,
+                         MethodNotAllowedError)
 from nuages.utils import get_matching_mime_types, doc
 
 
-__all__ = ('Node', 'CollectionNode', 'ResourceNode', 'parseQueryString',
-           'parseBody')
+__all__ = ('Node', 'CollectionNode', 'ResourceNode', 'NodeAlias',
+           'parseQueryString', 'parseBody')
 
 '''
 Django settings:
@@ -23,11 +26,17 @@ Django settings:
 API_ENDPOINT = urlparse.urlparse(getattr(settings, 'NUAGES_API_ENDPOINT', ''))
 MAX_COLLECTION_SIZE = getattr(settings, 'NUAGES_MAX_COLLECTION_SIZE', 1000)
 IDEMPOTENT_METHODS = ['GET', 'HEAD', 'OPTIONS']
-HTTP_METHODS_HANDLERS = {'GET'      : 'render',
-                         'POST'     : 'create',
-                         'PUT'      : 'replace',
-                         'PATCH'    : 'patch',
-                         'DELETE'   : 'delete', }
+RESOURCE_HTTP_METHODS_HANDLERS = {  'HEAD'     : 'retrieve',
+                                    'GET'      : 'retrieve',
+                                    'PUT'      : 'replace',
+                                    'PATCH'    : 'modify',
+                                    'DELETE'   : 'delete', }
+COLLECTION_HTTP_METHODS_HANDLER = { 'HEAD'     : 'list',
+                                    'GET'      : 'list',
+                                    'POST'     : 'add',
+                                    'PUT'      : 'replace',
+                                    'PATCH'    : 'modify',
+                                    'DELETE'   : 'delete', }
 FORM_URL_ENCODED = 'application/x-www-form-urlencoded'
 
 
@@ -37,14 +46,27 @@ class Node(object):
     name = None
     parent = None
     secure = False
+    method_handlers = None
+    _parent_instance = None
     outputs = ['application/json', 'application/xml',
                'application/xml+xhtml', 'text/html', '*/*']
     
     def __new__(cls, *args, **kwargs):
+        hasher = hashlib.sha1()
+        map(hasher.update, [cls.get_full_url_pattern(),
+                          ''.join(map(str, args)),
+                          str(kwargs)])
+        key = hasher.hexdigest()
+        cached = cache.get(key)
+        if cached:
+            return cached
+        
         cls.label = cls.label or cls.__name__.lower()
         cls.outputs = set([settings.DEFAULT_CONTENT_TYPE if c == '*/*' else c
                        for c in cls.outputs])
-        return object.__new__(cls, *args, **kwargs)
+        instance = object.__new__(cls, *args, **kwargs)
+        cache.set(key, instance)
+        return instance
     
     def __init__(self, request, *args, **kwargs):
         '''Initializes a new instance of the Node class:
@@ -52,18 +74,16 @@ class Node(object):
         - request: Current HttpRequest instance.
         - *args, **kwargs are passed all the way to the top parent node.'''
         self.request = request
-        members = filter(lambda x: x not in ['self', 'request',
-                                             'parent_instance'],
+        members = filter(lambda x: x not in ['self', 'request'],
                          inspect.getargspec(self.__init__)[0])
         self.__locals = dict(zip(members, args))
         map(lambda t: setattr(self, t[0], t[1]), self.__locals.items())
         
-        self._parent_instance = kwargs.pop('parent_instance', None)
-        if self._parent_instance:
-            self.parent = self._parent_instance.__class__
-            self.request = self._parent_instance.request
-        elif self.parent:
-            self._parent_instance = self.parent(request, **kwargs)
+        kwargs.update(self.__locals)
+        self._chained_args = kwargs
+        
+        if self.parent:
+            self._parent_instance = self.parent(request, **self._chained_args)
             
         self._try_cross()
             
@@ -101,8 +121,11 @@ class Node(object):
             raise ForbiddenError(self, 'Access to resource has been denied.')
     
     def _try_handle_request(self):
+        if self.request.method == 'OPTIONS':
+            return True
+        
         func_name = ('_can_%s' %
-                     HTTP_METHODS_HANDLERS[self.request.method])
+                     self.method_handlers[self.request.method])
 
         if hasattr(self, func_name):
             if not getattr(self, func_name)():
@@ -139,46 +162,53 @@ class Node(object):
         '''Gets the ETag of the current node.'''
         return ETAG_WILDCARD
     
+    def render_in_parent(self):
+        '''Defines how the reference to the current node in rendered in its
+        parent node
+        
+        Returns a dict'''
+        return {self.label: self.build_url(absolute=True)}
+    
     def render_in_collection(self):
-        return {self.label: {'uri': self.build_url(absolute=True),
-                            'etag': str(self.get_etag())}}
+        '''Determines how the current node in rendered inside a collection of 
+        nodes'''
+        return {'uri': self.build_url(absolute=True)}
     
     def _call_http_method_handler(self, *args, **kwargs):
         handler = getattr(self,
-                          HTTP_METHODS_HANDLERS[self.request.method.upper()])
+                          self.method_handlers[self.request.method.upper()])
         return handler(*args, **kwargs)
     
     def _process_get(self):
-        self._try_handle_request()
-        
         response = HttpResponse(self, content_type=self._matching_outputs[0])
         data = self._call_http_method_handler()
         
         for node_cls in self.__class__.get_children_nodes():
             try:
-                child_node = node_cls(self.request, **self.__locals)
-                data.update(child_node.render_in_collection())
+                child_node = node_cls(self.request, **self._chained_args)
+                data.update(child_node.render_in_parent())
             except ForbiddenError:
                 continue
             
         response.payload = data    
         return response
     
-    def _process_post(self):
-        self._try_handle_request()
-        self._call_http_method_handler()
-    
     def _process_patch(self):
-        self._try_handle_request()
+        '''If not exception is raised, the resource is serialized and included
+        in the body of the response'''
         self._call_http_method_handler()
+        return self._process_get()
     
     def _process_put(self):
-        self._try_handle_request()
         self._call_http_method_handler()
     
     def _process_delete(self):
-        self._try_handle_request()
-        self._call_http_method_handler()
+        '''The handler should return a boolean specifying whether the deleted
+        resource should be included in the body of the response'''
+        if self._call_http_method_handler():
+            return HttpResponse(self, 204)
+        
+        return self._process_get() 
     
     def _process_head(self):
         '''The HEAD method is identical to GET except that the server MUST NOT
@@ -215,7 +245,7 @@ class Node(object):
                             url_regex=cls.get_full_url_pattern(),
                             accept=cls.outputs)
         for i, handler_func in enumerate([getattr(cls,
-                                                  HTTP_METHODS_HANDLERS[m])
+                                                  cls.method_handlers[m])
                                           for m in allowed]):
             qstr_deco = handler_func.func_dict.get(parseQueryString.__name__)
             qstr_form = qstr_deco.form_cls if qstr_deco else None
@@ -228,7 +258,7 @@ class Node(object):
                                     content_types=(body_deco.content_types if
                                                    body_deco else []))
             node_doc.methods.append(method_doc)
-        return node_doc
+        return str(node_doc)
     
     @classmethod
     def get_children_nodes(cls):
@@ -245,7 +275,7 @@ class Node(object):
             return cls.url
         
         if not issubclass(cls.parent, Node):
-            raise ValueError('\'parent\' must be an instance of HttpNode')
+            raise ValueError('\'parent\' must be an instance of Node class.')
         
         return (cls.parent.get_full_url_pattern().rstrip('$') +
                 cls.url.lstrip('^'))
@@ -260,12 +290,13 @@ class Node(object):
     @classmethod
     def get_allowed_methods(cls, implicits=True):
         implicit_methods = ['HEAD', 'OPTIONS'] if implicits else []
-        return [method for method, handler in HTTP_METHODS_HANDLERS.items()
+        return [method for method, handler in cls.method_handlers.items()
                 if hasattr(cls, handler)] + implicit_methods
                 
     @classmethod
     def process(cls, request, **kwargs):
         instance = cls(HttpRequest(request), **kwargs)
+        instance._try_handle_request()
         method_func = getattr(instance, '_process_' + request.method.lower())
         return method_func()
 
@@ -274,14 +305,19 @@ class CollectionNode(Node):
     label = None
     range_unit = None
     max_limit = MAX_COLLECTION_SIZE
+    method_handlers = COLLECTION_HTTP_METHODS_HANDLER
     
     def __new__(cls, *args, **kwargs):
         cls.range_unit = cls.range_unit or cls.__name__ + 's'
         cls.label = cls.label or cls.range_unit
-        return object.__new__(cls, *args, **kwargs)
+        return Node.__new__(cls, *args, **kwargs)
+    
+    def _call_http_method_handler(self, *args, **kwargs):
+        handler = getattr(self,
+                          self.method_handlers[self.request.method.upper()])
+        return handler(*args, **kwargs)
     
     def _process_get(self, fields=[]):
-        self._try_handle_request()
         response = HttpResponse(self, content_type=self._matching_outputs[0])
         
         request_range = self.request.META.get('HTTP_RANGE')
@@ -292,20 +328,93 @@ class CollectionNode(Node):
             kwparams = {'offset': request_range.offset,
                         'limit' : request_range.limit}    
         items = self._call_http_method_handler(**kwparams)
+        if items is None:
+            raise ValueError('%s() method of node %s returned None.' % 
+                             (self.method_handlers.get(self.request.method),
+                              self.__class__.__name__))
         
-        if not len(items):
-            if request_range:
-                raise RequestedRangeNotSatisfiableError(self)
+        if not len(items) and request_range: 
+            raise RequestedRangeNotSatisfiableError(self)
+        
+        response.payload = []
+        for item in items:
+            try:
+                response.payload.append(item.render_in_collection())
+            except ForbiddenError:
+                pass
+        
+        if not len(response.payload):
             response.status = 204
+        elif request_range:
+            response.status = 206 
         else:
-            response.status = 206 if request_range else 200
-            response.payload = [item.render_in_collection() for item in items]
+            response.status = 200
             
+        return response
+
+    def _process_post(self):
+        '''Redirects the client to the Node returne by the handler.'''
+        created_node = self._call_http_method_handler()
+        response = HttpResponse(self, 302)
+        response['Location'] = created_node.build_url()
         return response
 
 
 class ResourceNode(Node):
-    pass
+    method_handlers = RESOURCE_HTTP_METHODS_HANDLERS
+    
+    def render_in_collection(self):
+        return self._process_get().payload
+    
+    
+class NodeAlias(object):
+    '''Represents a node that's an alias with a different URL pattern to
+    another node'''
+    parent = None
+    url = None
+    name = ''
+    permanent = True
+    
+    def __init__(self, request, **kwargs):
+        self.request = request
+        if self.parent:
+            self._parent_instance = self.parent(request, **kwargs)
+            
+    def get_canonical_node(self, **kwargs):
+        raise NotImplementedError
+    
+    @classmethod
+    def get_view_name(cls):
+        return  (cls.name or
+                 cls.__module__.replace('.', '_') + '_alias_' + cls.__name__) 
+    
+    @classmethod
+    def get_full_url_pattern(cls):
+        if not cls.parent:
+            return cls.url
+        
+        if not issubclass(cls.parent, Node):
+            raise ValueError('\'parent\' must be an instance of the Node class')
+        
+        return (cls.parent.get_full_url_pattern().rstrip('$') +
+                cls.url.lstrip('^'))
+        
+    @classmethod
+    def get_allowed_methods(cls, implicits=True):
+        implicit_methods = ['HEAD', 'OPTIONS'] if implicits else []
+        return ['GET'] + implicit_methods
+    
+    @classmethod
+    def process(cls, request, **kwargs):
+        if request.method not in cls.get_allowed_methods():
+            raise MethodNotAllowedError(cls)
+        
+        response = HttpResponse(status=301 if cls.permanent else 302)
+        response['Location'] = (cls(request, **kwargs)
+                                .get_canonical_node(**kwargs)
+                                .build_url())
+        return response
+        
 
 
 class parseData(object):
@@ -322,7 +431,9 @@ class parseData(object):
         self.form_cls = form_cls
         
     def __call__(self, fn):
-        if fn.func_name not in HTTP_METHODS_HANDLERS.values():
+        if (fn.func_name not in RESOURCE_HTTP_METHODS_HANDLERS.values() and
+            fn.func_name not in COLLECTION_HTTP_METHODS_HANDLER.values()):
+            assert False, fn.func_name
             raise RuntimeError('%s can only decorate Node handler methods' %
                                self.__class__.__name__)
         
@@ -351,10 +462,13 @@ class parseQueryString(parseData):
     '''Added as a decorator, parses data from the query string and 
     validates it using the submitted Form instance.'''
     def parse(self, node):
-        form = self.form_cls(node.request.GET)
-        if not form.is_valid():
-            raise InvalidRequestError(form.errors_as_text())
-        return self.get_fields(form)
+        try:
+            form = self.form_cls(node.request.GET, node=node)
+            if not form.is_valid():
+                raise InvalidRequestError(description=form.errors_as_text())
+            return self.get_fields(form)
+        except UnexpectedFieldsError, e:
+            raise InvalidRequestError(description=str(e))
 
 
 class parseBody(parseData):
@@ -365,7 +479,7 @@ class parseBody(parseData):
     
     Can only decorate handlers of POST, PUT and PATCH methods.
     
-    Non url-encoded data is passed \'as is\' in 'payload' attribute.
+    Non url-encoded data is passed \'as is\' in the 'payload' attribute.
     '''
     def __init__(self, form_cls, content_types=[FORM_URL_ENCODED]):
         self.content_types = content_types
@@ -384,8 +498,11 @@ class parseBody(parseData):
             
         if (request_content_type != FORM_URL_ENCODED):
             return (), {'payload': node.request.raw_post_data}
-            
-        form = self.form_cls(node.request.POST)
-        if not form.is_valid():
-            raise InvalidRequestError(form.errors_as_text())
-        return self.get_fields(form)
+        
+        try:    
+            form = self.form_cls(node.request.POST, node=node)
+            if not form.is_valid():
+                raise InvalidRequestError(description=form.errors_as_text())
+            return self.get_fields(form)
+        except UnexpectedFieldsError, e:
+            raise InvalidRequestError(description=str(e))
