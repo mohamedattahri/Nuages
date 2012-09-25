@@ -54,9 +54,20 @@ class RequestMeta(collections.MutableMapping):
         self.store = request_meta
         
     def __getitem__(self, key):
+        key = self.__keytransform__(key)
+        header, value = key, self.store.get(key)
         try:
-            key = self.__keytransform__(key)
-            header, value = key, self.store[key]
+            if header == 'HTTP_AUTHORIZATION':
+                try:
+                    protocol, token = value.strip(' ').split(' ')
+                    protocol = protocol.upper()
+                    if protocol == 'BASIC':
+                        username, password = token.decode('base64').split(':')
+                        return protocol, username, password
+                    
+                    return protocol, token
+                except ValueError:
+                    return value
             
             if header in ['HTTP_IF_MATCH', 'HTTP_IF-NONE_MATCH']:
                 return (Etag.parse(value) if ';' not in value
@@ -69,20 +80,21 @@ class RequestMeta(collections.MutableMapping):
                           'HTTP_IF_UNMODIFIED_SINCE']:
                 return parse_datetime(value)
             
-            if header == 'Range':
+            if header == 'HTTP_RANGE':
                 return Range.parse(value)
             
             if header == 'HTTP_ACCEPT':
+                if not value:
+                    return [settings.DEFAULT_CONTENT_TYPE]
+                
                 items = filter(lambda x: not x.startswith('q='),
                                itertools.chain(*[i.split(',') 
                                                  for i in value.split(';')]))
                 return [settings.DEFAULT_CONTENT_TYPE if i == '*/*' else i
                         for i in items]
             return value
-        except(ValueError), e:
-            raise InvalidRequestError(400, repr(e))
-        except(Exception), e:
-            raise RuntimeError(repr(e))
+        except:
+            return value
         
     def get(self, key, default=None):
         try:
