@@ -4,7 +4,7 @@ from django.conf import settings
 from django.utils.cache import patch_vary_headers
 from nuages.utils import add_header_if_undefined, get_matching_mime_types
 from nuages.utils import serialization
-from nuages.http import (HttpRequest, HttpException, HttpResponse,
+from nuages.http import (HttpRequest, HttpError, HttpResponse,
                          ETAG_WILDCARD, ForbiddenError,
                          MethodNotAllowedError, NotAcceptableError,
                          PreconditionFailedError, NotModifiedError)
@@ -42,7 +42,7 @@ class RequestHandlerMiddleware():
             if request.method != 'OPTIONS':
                 if not len(get_matching_mime_types(request, node_cls)):
                     raise NotAcceptableError(node_cls)
-        except(HttpException), http_exception:
+        except(HttpError), http_exception:
             return self.process_exception(request, http_exception)
         except AttributeError:
             pass
@@ -52,7 +52,7 @@ class RequestHandlerMiddleware():
         been defined at the node level'''
         if (not issubclass(response.__class__, HttpResponse) or
             not response.node or 
-            isinstance(response, HttpException) or
+            isinstance(response, HttpError) or
             request.method == 'OPTIONS'):
             return response
         
@@ -88,15 +88,16 @@ class RequestHandlerMiddleware():
                                         
             response['Etag'] = etag
             response['Last-Modified'] = etag.last_modified
-            response.content = self.__serialize(response.payload,
-                                                content_type=content_type)
-            
+                        
+            if request.method != 'HEAD' and response.payload:
+                response.content = self.__serialize(response.payload,
+                                                    content_type=content_type)
             return response
-        except(HttpException), http_exception:
+        except(HttpError), http_exception:
             return self.process_exception(request, http_exception)
         
     def process_exception(self, request, exception):
         '''Intercepts any exceptions raised by Nuages and turns it
         into a meaningful HTTP response.'''
-        if issubclass(exception.__class__, HttpException):
+        if issubclass(exception.__class__, HttpError):
             return exception
