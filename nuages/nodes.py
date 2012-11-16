@@ -48,6 +48,7 @@ class Node(object):
     secure = False
     method_handlers = None
     _parent_instance = None
+    _post_mortem_etag = None
     outputs = ['application/json', 'application/xml',
                'application/xml+xhtml', 'text/html', '*/*']
     
@@ -161,7 +162,7 @@ class Node(object):
 
     def get_etag(self):
         '''Gets the ETag of the current node.'''
-        return ETAG_WILDCARD
+        return self._post_mortem_etag or ETAG_WILDCARD
     
     def render_in_parent(self):
         '''Defines how the reference to the current node in rendered in its
@@ -206,9 +207,9 @@ class Node(object):
     def _process_delete(self):
         '''The handler should return a boolean specifying whether the deleted
         resource should be included in the body of the response'''
-        if self._call_http_method_handler():
-            return HttpResponse(self, 204)
-        
+        self._post_mortem_etag = self.get_etag()
+        if self._call_http_method_handler() is False:
+            return HttpResponse(node=self, status=204)
         return self._process_get() 
     
     def _process_head(self):
