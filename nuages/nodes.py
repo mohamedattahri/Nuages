@@ -299,7 +299,8 @@ class Node(object):
     def process(cls, request, **kwargs):
         instance = cls(HttpRequest(request), **kwargs)
         instance._try_handle_request()
-        method_func = getattr(instance, '_process_' + request.method.lower())
+        method_func = getattr(instance,
+                              '_process_' + instance.request.method.lower())
         return method_func()
 
 
