@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-from django.forms import Form, fields
+import urlparse
+from django import forms
+from django.forms import Form
 from django.forms import ValidationError
 from django.utils.encoding import force_unicode
 
@@ -13,12 +15,14 @@ class UnexpectedFieldsError(Exception):
 class Form(Form):
     def __init__(self, data=None, strict=True, node=None, *args, **kwargs):
         super(Form, self).__init__(data=data, *args, **kwargs)
-        self.node = node
         if strict:
-            unexpected_fields = [key for key in data
+            unexpected_fields = [key for key
+                                 in urlparse.parse_qs(data.urlencode())
                                  if key not in self.fields]
             if len(unexpected_fields):
                 raise UnexpectedFieldsError(unexpected_fields)
+        self.node = node
+        
     
     def errors_as_text(self):
         lines = []
