@@ -366,7 +366,13 @@ class ResourceNode(Node):
     method_handlers = RESOURCE_HTTP_METHODS_HANDLERS
     
     def render_in_collection(self):
-        return self._process_get().payload
+        payload = super(ResourceNode, self).render_in_collection()
+        if payload:
+            payload.update({'uri': self.build_url(absolute=True),
+                            'etag': str(self.get_etag())})
+        return payload
+    
+    
     
     
 class NodeAlias(object):
