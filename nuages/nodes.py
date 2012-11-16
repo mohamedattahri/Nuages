@@ -176,14 +176,17 @@ class Node(object):
         nodes'''
         return {'uri': self.build_url(absolute=True)}
     
-    def _call_http_method_handler(self, *args, **kwargs):
-        handler = getattr(self,
-                          self.method_handlers[self.request.method.upper()])
+    def _call_http_method_handler(self, method=None, *args, **kwargs):
+        handler = getattr(
+          self,
+          self.method_handlers[method or self.request.method.upper()]
+        )
         return handler(*args, **kwargs)
     
     def _process_get(self):
-        response = HttpResponse(self, content_type=self._matching_outputs[0])
-        data = self._call_http_method_handler()
+        response = HttpResponse(node=self,
+                                content_type=self._matching_outputs[0])
+        data = self._call_http_method_handler(method='GET')
         
         for node_cls in self.__class__.get_children_nodes():
             try:
