@@ -149,12 +149,13 @@ class Node(object):
         if self._parent_instance:
             parent_url = self._parent_instance.build_url(absolute=False)
             kwargs.update(resolve(parent_url)[2])
-
+        
         relative = reverse(self.__class__.get_view_name(), kwargs=kwargs)
         if not absolute:
             return relative
         
-        return urlparse.urlunparse(('https' if self.secure else 'http',
+        secure = self.secure or self.request.is_secure()
+        return urlparse.urlunparse(('https' if secure else 'http',
                                     API_ENDPOINT[1] or self.request.get_host(),
                                     relative, None, None, None))
 
