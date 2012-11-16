@@ -201,7 +201,8 @@ class Node(object):
     def _process_patch(self):
         '''If not exception is raised, the resource is serialized and included
         in the body of the response'''
-        self._call_http_method_handler()
+        if self._call_http_method_handler() is False:
+            return HttpResponse(node=self, status=204)
         return self._process_get()
     
     def _process_put(self):
