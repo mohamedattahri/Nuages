@@ -325,7 +325,8 @@ class CollectionNode(Node):
         return handler(*args, **kwargs)
     
     def _process_get(self, fields=[]):
-        response = HttpResponse(self, content_type=self._matching_outputs[0])
+        response = HttpResponse(node=self,
+                                content_type=self._matching_outputs[0])
         
         request_range = self.request.META.get('HTTP_RANGE')
         kwparams = {}
