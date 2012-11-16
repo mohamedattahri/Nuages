@@ -239,7 +239,7 @@ class Node(object):
         the current node to generate a doc and add it to the body of the 
         response.'''
         allowed = self.__class__.get_allowed_methods(implicits=False)
-        response = HttpResponse(self, 200)
+        response = HttpResponse(node=self, status=200)
         response['Allow'] = ', '.join(map(lambda x: x.upper(), allowed))
         response.content = self.__class__.generate_doc()
         return response
@@ -360,9 +360,9 @@ class CollectionNode(Node):
         return response
 
     def _process_post(self):
-        '''Redirects the client to the Node returne by the handler.'''
+        '''Redirects the client to the Node returned by the handler.'''
         created_node = self._call_http_method_handler()
-        response = HttpResponse(self, 302)
+        response = HttpResponse(node=self, status=302)
         response['Location'] = created_node.build_url()
         return response
 
@@ -512,7 +512,7 @@ class parseBody(parseData):
         if (request_content_type != FORM_URL_ENCODED):
             return (), {'payload': node.request.raw_post_data}
         
-        try:    
+        try:
             form = self.form_cls(node.request.POST, node=node)
             if not form.is_valid():
                 raise InvalidRequestError(description=form.errors_as_text())
