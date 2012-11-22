@@ -36,15 +36,19 @@ def parse_datetime(datestr):
     '''Turns a ISO8601 or RFC1123 date string representation to a Python
     datetime instance.'''
     try:
+        datestr = float(datestr)
+        return datetime.fromtimestamp(datestr)
+    except ValueError:
+        pass
+    
+    try:
+        datestr = str(datestr)
         if 'GMT' in datestr:    
             return datetime.fromtimestamp(parse_http_date(datestr))
         
-        if 'T' in datestr:
-            return datetime.strptime(datestr, ISO8601_DATEFORMAT)
-    
-        return datetime.fromtimestamp(datestr)
-    except(Exception), e:
-        raise RuntimeError('Unable to parse date \'%s\' (reason: %s)' % 
+        return datetime.strptime(datestr, ISO8601_DATEFORMAT)
+    except Exception, e:
+        raise ValueError('Unable to parse date \'%s\' (reason: %s)' % 
                            (datestr, repr(e)))
     
     
