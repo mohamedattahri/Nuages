@@ -2,6 +2,7 @@
 import inspect
 import urlparse
 import hashlib
+import itertools
 from django.conf import settings
 from django.utils.importlib import import_module
 from django.core.urlresolvers import reverse, resolve
@@ -38,6 +39,26 @@ COLLECTION_HTTP_METHODS_HANDLER = { 'HEAD'     : 'list',
                                     'PATCH'    : 'modify',
                                     'DELETE'   : 'delete', }
 FORM_URL_ENCODED = 'application/x-www-form-urlencoded'
+
+
+flattened_urlconf = []
+def flatten_urlconf():
+    def flatten(item):
+        if hasattr(item, 'url_patterns'):
+            return list(itertools.chain(*map(flatten, item.url_patterns)))
+        else:
+            return [item]
+
+    global flattened_urlconf
+    if flattened_urlconf:
+        return flattened_urlconf
+    
+    root_urlconf = import_module(settings.ROOT_URLCONF)
+    flattened = []
+    for item in root_urlconf.urlpatterns:
+        flattened += flatten(item)
+    flattened_urlconf = flattened
+    return flattened
 
 
 class Node(object):
@@ -268,8 +289,8 @@ class Node(object):
     
     @classmethod
     def get_children_nodes(cls):
-        root_urlconf = import_module(settings.ROOT_URLCONF)
-        return [url.callback.im_self for url in root_urlconf.urlpatterns
+        url_patterns = flatten_urlconf()
+        return [url.callback.im_self for url in url_patterns
                 if hasattr(url.callback, 'im_self') and
                 hasattr(url.callback.im_self, 'parent') and
                 url.callback.im_self.parent and
