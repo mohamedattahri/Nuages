@@ -388,8 +388,11 @@ class Range(object):
                          raw_header)
         if not match:
             raise ValueError('Invalid \'Range\' header value')
-            
-        return cls(*match.groupdict())
+        
+        values = match.groupdict()     
+        return cls(values['unit'],
+                   int(values['offset']),
+                   int(values['limit']))
 
 
 class ContentRange(object):
