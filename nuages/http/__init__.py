@@ -73,7 +73,7 @@ class RequestMeta(collections.MutableMapping):
                 except ValueError:
                     return value
             
-            if header in ['HTTP_IF_MATCH', 'HTTP_IF-NONE_MATCH']:
+            if header in ['HTTP_IF_MATCH', 'HTTP_IF_NONE_MATCH']:
                 return (Etag.parse(value) if ';' not in value
                         else [map(Etag.parse, value.split(';'))])
             
