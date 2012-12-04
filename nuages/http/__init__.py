@@ -298,7 +298,11 @@ class UnsupportedMediaTypeError(HttpError):
     '''"The server is refusing to service the request because the entity of
     the request is in a format not supported by the requested resource for the
     requested method."'''
-    def __init__(self, node=None, description=''):
+    def __init__(self, node=None, description='', required_format=None):
+        if required_format and not description:
+            description = ('Data must be sent formatted and sent in a ' \
+                            'request with a Content-Type header set to %s' % 
+                            required_format)
         super(UnsupportedMediaTypeError, self).__init__(node, 415, description)
         
         

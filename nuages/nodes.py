@@ -468,7 +468,6 @@ class parseData(object):
     def __call__(self, fn):
         if (fn.func_name not in RESOURCE_HTTP_METHODS_HANDLERS.values() and
             fn.func_name not in COLLECTION_HTTP_METHODS_HANDLER.values()):
-            assert False, fn.func_name
             raise RuntimeError('%s can only decorate Node handler methods' %
                                self.__class__.__name__)
         
@@ -529,10 +528,14 @@ class parseBody(parseData):
         request_content_type = node.request.META.get('CONTENT_TYPE')
         if (node.request.META.get('CONTENT_LENGTH', 0) and
             request_content_type not in self.content_types):
-            raise UnsupportedMediaTypeError
+            raise UnsupportedMediaTypeError(self,
+                                            required_format=FORM_URL_ENCODED)
             
-        if (request_content_type != FORM_URL_ENCODED):
-            return (), {'payload': node.request.raw_post_data}
+        if request_content_type != FORM_URL_ENCODED:
+            if not self.form_cls:
+                return (), {'payload': node.request.raw_post_data}
+            raise UnsupportedMediaTypeError(self,
+                                            required_format=FORM_URL_ENCODED)
         
         try:
             form = self.form_cls(node.request.POST, node=node)
