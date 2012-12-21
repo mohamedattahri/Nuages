@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import urlparse
 from django import forms
-from django.forms import Form
+from django.forms import Form, fields
 from django.forms import ValidationError
 from django.utils.encoding import force_unicode
 
