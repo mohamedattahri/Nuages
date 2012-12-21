@@ -12,7 +12,14 @@ XML_MIMETYPES = ['application/xml', 'text/xml']
 HTML_MIMETYPES = ['application/xhtml+xml', 'text/html']
 
 
+from datetime import datetime, date
+from nuages.http import datetime_to_timestamp
+
+
 def to_json(data):
+    for key, value in data.items():
+        if isinstance(value, datetime) or isinstance(value, date):
+            data[key] = datetime_to_timestamp(value)
     return json.dumps(data)
 
 
