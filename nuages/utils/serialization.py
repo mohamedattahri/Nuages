@@ -16,11 +16,15 @@ from datetime import datetime, date
 from nuages.http import datetime_to_timestamp
 
 
+class CustomEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime) or isinstance(obj, date):
+            return datetime_to_timestamp(obj)
+        return json.JSONEncoder.default(self, obj)
+
+
 def to_json(data):
-    for key, value in data.items():
-        if isinstance(value, datetime) or isinstance(value, date):
-            data[key] = datetime_to_timestamp(value)
-    return json.dumps(data)
+    return json.dumps(data, cls=CustomEncoder)
 
 
 def to_xml(data):
