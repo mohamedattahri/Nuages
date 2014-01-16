@@ -87,6 +87,9 @@ class RequestMeta(collections.MutableMapping):
             if header == 'HTTP_RANGE':
                 return Range.parse(value)
             
+            if header == 'HTTP_CONTENT_TYPE':
+                return value.split(';')[0] #removing potential "; charset=UTF-8"
+            
             if header == 'HTTP_ACCEPT':
                 if not value:
                     return [settings.DEFAULT_CONTENT_TYPE]
