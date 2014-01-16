@@ -383,7 +383,14 @@ class CollectionNode(Node):
 
     def _process_post(self):
         '''Redirects the client to the Node returned by the handler.'''
+
         created_node = self._call_http_method_handler()
+        if not created_node:
+            raise ValueError('Method "%s" returned an object of type "%s" ' \
+                             'instead of an expected ResourceNode instance.' % 
+                             (self.method_handlers[self.request.method.upper()], 
+                              created_node.__class__.__name__))
+        
         response = HttpResponse(node=self, status=201)
         response['Location'] = created_node.build_url()
         return response
