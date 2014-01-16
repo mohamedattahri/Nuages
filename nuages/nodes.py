@@ -551,3 +551,15 @@ class parseBody(parseData):
             return self.get_fields(form)
         except UnexpectedFieldsError, e:
             raise InvalidRequestError(description=str(e))
+        
+        
+def get_method_handlers(node_cls):
+    if issubclass(node_cls, CollectionNode):
+        return COLLECTION_HTTP_METHODS_HANDLER
+    
+    if issubclass(node_cls, ResourceNode):
+        return RESOURCE_HTTP_METHODS_HANDLERS
+    
+    raise ValueError('%s is not a subclass of the Node class.' % 
+                     node_cls.__name__)
+    

@@ -4,6 +4,7 @@ from django.conf import settings
 from django.utils.cache import patch_vary_headers
 from nuages.utils import add_header_if_undefined, get_matching_mime_types
 from nuages.utils import serialization
+from nuages.nodes import get_method_handlers
 from nuages.http import (HttpRequest, HttpError, HttpResponse,
                          ETAG_WILDCARD, ForbiddenError,
                          MethodNotAllowedError, NotAcceptableError,
@@ -32,8 +33,15 @@ class RequestHandlerMiddleware():
         try:           
             node_cls = view_func.im_self
             request = HttpRequest(request)
-        
+            
             if not len(node_cls.get_allowed_methods(implicits=False)):
+                if settings.DEBUG:
+                    names = set(get_method_handlers(node_cls).values())
+                    raise RuntimeError('%s has no instance methods (%s) to ' \
+                                       'process HTTP requests.' % 
+                                       (node_cls.__name__, ', '.join(names)))
+                
+                #404 seems to be the most reasonable choice
                 raise Http404
             
             if request.method not in node_cls.get_allowed_methods():
