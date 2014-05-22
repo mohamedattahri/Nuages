@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import urlparse
 from django import forms
-from django.forms import Form, fields
+from django.forms import ModelForm, fields
 from django.forms import ValidationError
 from django.utils.encoding import force_unicode
 
@@ -12,7 +12,7 @@ class UnexpectedFieldsError(Exception):
                                                     ', '.join(field_names))
 
 
-class Form(Form):
+class Form(ModelForm):
     def __init__(self, data=None, strict=True, node=None, *args, **kwargs):
         super(Form, self).__init__(data=data, *args, **kwargs)
         if strict:
@@ -22,8 +22,8 @@ class Form(Form):
             if len(unexpected_fields):
                 raise UnexpectedFieldsError(unexpected_fields)
         self.node = node
-        
-    
+
+
     def errors_as_text(self):
         lines = []
         for key, messages in self.errors.items():
@@ -34,4 +34,3 @@ class Form(Form):
     def get_first_error(self):
         for v in self.errors.values():
             return ';'.join([force_unicode(i) for i in v])
-            

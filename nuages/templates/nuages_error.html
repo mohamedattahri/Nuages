@@ -1,0 +1,16 @@
+{% extends "nuages_base.html" %}
+
+{% block base-title %}{{ response.status_code }} - {{ error }}{% endblock %}
+
+{% block base-content %}
+    {% if response.node %}
+    <div>
+        <div><strong>{{ response.node.label }}</strong></div>
+        <div>{{ response.node.doc }}</div>
+    </div>
+    {% endif %}
+    <div>
+        <div><strong>{{ error }}</strong></div>
+        <div>{{ description }}</div>
+    </div>
+{% endblock base-content %}

@@ -1,0 +1,10 @@
+{% extends "nuages_base.html" %}
+
+{% block base-title %}HTTP Error{% endblock %}
+
+{% block base-content %}
+    <div>
+        <div><strong>{{ error }}</strong></div>
+        <div>{{ description }}</div>
+    </div>
+{% endblock base-content %}

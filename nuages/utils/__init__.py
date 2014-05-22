@@ -6,6 +6,6 @@ def add_header_if_undefined(response, header, value):
         response[header] = value
         
 
-def get_matching_mime_types(request, node_class):
-    return list(set(node_class.outputs) &
+def get_matching_mime_types(request, mimetypes):
+    return list(set(mimetypes) &
                 set(request.META.get('HTTP_ACCEPT', [])))
