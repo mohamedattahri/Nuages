@@ -38,11 +38,13 @@ class ResponseFormatter(object):
         content_type = settings.DEFAULT_CONTENT_TYPE
         data = self.response.payload
 
-        if self.response.node and len(self.response.node.outputs):
-            matching_types = get_matching_mime_types(self.request,
-                                                     HTTP_ERROR_FORMATS)
-            if len(matching_types):
-                content_type = matching_types[0]
+        # if self.response.node and len(self.response.node.outputs):
+        matching_types = get_matching_mime_types(self.request,
+                                                 HTTP_ERROR_FORMATS)
+
+        if len(matching_types):
+            content_type = matching_types[0]
+
 
         self.response['Content-Type'] = content_type
 

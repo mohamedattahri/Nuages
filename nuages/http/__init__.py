@@ -8,7 +8,7 @@ from django.conf import settings
 from django.utils.http import parse_http_date, http_date
 from django.http import Http404, HttpResponse as _HttpResponse
 from django.core.handlers.wsgi import STATUS_CODE_TEXT
-from nuages.utils import get_matching_mime_types
+from nuages.utils import get_matching_mime_types, parse_accept_header
 
 
 __all__ = ('HttpResponse', 'HttpResponse', 'HttpError', 'NotModifiedError',
@@ -63,6 +63,7 @@ class RequestMeta(collections.MutableMapping):
     def __getitem__(self, key):
         key = self.__keytransform__(key)
         header, value = key, self.store.get(key)
+
         try:
             if header == 'HTTP_AUTHORIZATION':
                 try:
@@ -95,15 +96,16 @@ class RequestMeta(collections.MutableMapping):
 
             if header == 'HTTP_ACCEPT':
                 if not value:
-                    return [settings.DEFAULT_CONTENT_TYPE]
+                    return [settings.DEFAULT_CONTENT_TYPE,]
 
-                items = filter(lambda x: not x.startswith('q='),
-                               itertools.chain(*[i.split(',')
-                                                 for i in value.split(';')]))
+                items = parse_accept_header(value)
+                logging.error(items)
                 return [settings.DEFAULT_CONTENT_TYPE if i == '*/*' else i
                         for i in items]
+
             return value
-        except:
+        except Exception, e:
+            logging.error(str(e))
             return value
 
     def get(self, key, default=None):
