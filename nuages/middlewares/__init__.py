@@ -38,7 +38,7 @@ class RequestHandlerMiddleware():
 
             if (request.method != 'OPTIONS' and
                 not len(get_matching_mime_types_for_node(request, node_cls))):
-                    raise NotAcceptableError()
+                    raise NotAcceptableError(node_cls)
 
         except(HttpError), http_exception:
             return self.process_exception(request, http_exception)
