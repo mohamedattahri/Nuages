@@ -99,7 +99,6 @@ class RequestMeta(collections.MutableMapping):
                     return [settings.DEFAULT_CONTENT_TYPE,]
 
                 items = parse_accept_header(value)
-                logging.error(items)
                 return [settings.DEFAULT_CONTENT_TYPE if i == '*/*' else i
                         for i in items]
 
