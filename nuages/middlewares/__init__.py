@@ -74,13 +74,15 @@ class RequestHandlerMiddleware():
                 add_header_if_undefined(response, 'Strict-Transport-Security',
                                         'max-age=99999999')
 
-            patch_vary_headers(response, ['Accept'])
-
             response['Etag'] = etag
             response['Last-Modified'] = etag.last_modified
 
-            if request.method != 'HEAD' and response.payload:
+            if not response.payload:
+                del response["Content-Type"]
+                response['Content-Length'] = "0"
+            else:
                 ApiResponseFormatter(request, response).format()
+                patch_vary_headers(response, ['Accept'])
 
             return response
         except(HttpError), http_exception:
