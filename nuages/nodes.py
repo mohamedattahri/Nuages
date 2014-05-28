@@ -73,7 +73,8 @@ class Node(object):
     parent = None
     secure = False
     method_handlers = None
-    _parent_instance = None
+    _chained_args = None
+    _parent_node = None
     _post_mortem_etag = None
     outputs = ['application/json', 'application/xml',
                'application/xml+xhtml', 'text/html', '*/*']
@@ -111,9 +112,9 @@ class Node(object):
         self._chained_args = kwargs
 
         if parent_node:
-            self._parent_instance = parent_node
+            self._parent_node = parent_node
         elif self.parent:
-            self._parent_instance = self.parent(request, **self._chained_args)
+            self._parent_node = self.parent(request, **self._chained_args)
 
         self._try_cross()
 
@@ -176,11 +177,11 @@ class Node(object):
         API root configured in the settings.'''
         self._try_cross() #You don't need the URL of a resource you can't cross.
 
-        kwargs = {}
-        for key, value in [(key, value) for (key, value) in self.__class__.pattern_regex.groupindex.items() if key in self._chained_args]:
-            kwargs[key] = value
+        kwargs = self._chained_args
+        for key in [key for (key, value) in self.__class__.pattern_regex.groupindex.items() if key not in self._chained_args]:
+            kwargs.pop(key, None)
 
-        relative = reverse(self.__class__.get_view_name(), kwargs=kwargs)
+        relative = reverse(self.get_view_name(), kwargs=kwargs)
         if not absolute:
             return relative
 
@@ -442,7 +443,7 @@ class NodeAlias(object):
     def __init__(self, request, **kwargs):
         self.request = request
         if self.parent:
-            self._parent_instance = self.parent(request, **kwargs)
+            self._parent_node = self.parent(request, **kwargs)
 
     def get_canonical_node(self, **kwargs):
         raise NotImplementedError
